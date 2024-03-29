@@ -120,7 +120,10 @@ class Engine:
                     base_model_id, self.base_model_path))
             if status != 0:
                 raise RuntimeError("unzip failed, error code is {}. please connect engineer".format(status))
+        else:
+            self.base_model_path = self.resources_prefix
         base_model = self.base_model.get_last_model()
+
         if base_model:
             model = base_model.mllm_engine.driver_worker.model_runner.model
 
@@ -128,15 +131,25 @@ class Engine:
                                )
             model.cuda()
         else:
-            base_model = MLLM(
-                model="{}/{}".format(self.base_model_path, base_model_id),
-                tokenizer="{}/{}".format(self.base_model_path, base_model_id),
-                gpu_memory_utilization=EnvVar.GPU_MEMORY_UTILIZATION,
-                dtype="float16",
-                lora_weight_id="{}/{}".format(self.addapter_resources_prefix, self.model_id),
-                max_num_batched_tokens=EnvVar.MAX_NUM_BATCHED_TOKENS,
-                enforce_eager=False
-            )
+            if not self.lora_model_id:
+                base_model = MLLM(
+                    model="{}/{}".format(self.base_model_path, base_model_id),
+                    tokenizer="{}/{}".format(self.base_model_path, base_model_id),
+                    gpu_memory_utilization=EnvVar.GPU_MEMORY_UTILIZATION,
+                    dtype="float16",
+                    max_num_batched_tokens=EnvVar.MAX_NUM_BATCHED_TOKENS,
+                    enforce_eager=False
+                )
+            else:
+                base_model = MLLM(
+                    model="{}/{}".format(self.base_model_path, base_model_id),
+                    tokenizer="{}/{}".format(self.base_model_path, base_model_id),
+                    gpu_memory_utilization=EnvVar.GPU_MEMORY_UTILIZATION,
+                    dtype="float16",
+                    lora_weight_id="{}/{}".format(self.addapter_resources_prefix, self.model_id),
+                    max_num_batched_tokens=EnvVar.MAX_NUM_BATCHED_TOKENS,
+                    enforce_eager=False
+                )
 
         base_state_dict = {}
         for name, para in get_model_state_dict(base_model).items():
