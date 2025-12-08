@@ -38,7 +38,7 @@ from vllm.model_executor.models.vision import get_vit_attn_backend
 from vllm.platforms import current_platform
 from vllm.utils.torch_utils import (
     direct_register_custom_op,
-    kv_cache_dtype_str_to_dtype,
+    kv_cache_dtype_str_to_dtype, debug_invarient,
 )
 from vllm.v1.kv_cache_interface import (
     FullAttentionSpec,
@@ -358,6 +358,7 @@ class Attention(nn.Module, AttentionLayerBase):
         # For some alternate attention backends like MLA the attention output
         # shape does not match the query shape, so we optionally let the model
         # definition specify the output tensor shape.
+        # debug_727, debug_728, idx,
         output_shape: torch.Size | None = None,
     ) -> torch.Tensor:
         """
@@ -407,10 +408,18 @@ class Attention(nn.Module, AttentionLayerBase):
                     self, query, key, value, self_kv_cache, attn_metadata, output=output
                 )
             else:
+                # if idx == 0:
+                #     debug_invarient("query", query, debug_727, debug_728)
+                #     debug_invarient("key", key, debug_727, debug_728)
+                #     debug_invarient("value", value, debug_727, debug_728)
+                #     debug_invarient("output", output, debug_727, debug_728)
                 torch.ops.vllm.unified_attention_with_output(
-                    query, key, value, output, self.layer_name
+                    query, key, value, output, self.layer_name, #debug_727, debug_728, idx
                 )
-            return output.view(-1, hidden_size)
+                res = output.view(-1, hidden_size)
+                # if idx == 0:
+                #     debug_invarient("unified_attention_with_output", res, debug_727, debug_728)
+            return res
         else:
             if self.use_direct_call:
                 forward_context = get_forward_context()
@@ -955,6 +964,7 @@ def unified_attention_with_output(
     layer_name: str,
     output_scale: torch.Tensor | None = None,
     output_block_scale: torch.Tensor | None = None,
+    # debug_727=False, debug_728=False, idx=1
 ) -> None:
     wait_for_kv_layer_from_connector(layer_name)
     forward_context: ForwardContext = get_forward_context()
@@ -973,6 +983,7 @@ def unified_attention_with_output(
         output=output,
         output_scale=output_scale,
         output_block_scale=output_block_scale,
+        # debug_727=debug_727, debug_728=debug_728, idx=idx
     )
 
     maybe_save_kv_layer_to_connector(layer_name, kv_cache)
@@ -1086,3 +1097,4 @@ direct_register_custom_op(
     fake_impl=unified_mla_attention_with_output_fake,
     dispatch_key=current_platform.dispatch_key,
 )
+

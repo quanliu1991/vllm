@@ -24,7 +24,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 """Inference-only Qwen2 model compatible with HuggingFace weights."""
-
+import pickle
 from collections.abc import Iterable
 from itertools import islice
 from typing import Any
@@ -69,6 +69,7 @@ from .utils import (
     make_layers,
     maybe_prefix,
 )
+from ...utils.torch_utils import debug_invarient
 
 
 class Qwen2MLP(nn.Module):
@@ -364,7 +365,10 @@ class Qwen2Model(nn.Module):
         positions: torch.Tensor,
         intermediate_tensors: IntermediateTensors | None = None,
         inputs_embeds: torch.Tensor | None = None,
+        debug_727 = False,
+        debug_728=False,
     ) -> torch.Tensor | IntermediateTensors:
+        debug_invarient("input_ids", input_ids, debug_727, debug_728)
         if get_pp_group().is_first_rank:
             if inputs_embeds is not None:
                 hidden_states = inputs_embeds
@@ -375,15 +379,16 @@ class Qwen2Model(nn.Module):
             assert intermediate_tensors is not None
             hidden_states = intermediate_tensors["hidden_states"]
             residual = intermediate_tensors["residual"]
-
+        debug_invarient("embedding", input_ids, debug_727, debug_728)
         aux_hidden_states = []
         for idx, layer in enumerate(
             islice(self.layers, self.start_layer, self.end_layer)
         ):
             if idx in self.aux_hidden_state_layers:
                 aux_hidden_states.append(hidden_states + residual)
-            hidden_states, residual = layer(positions, hidden_states, residual)
-
+            hidden_states, residual = layer(positions, hidden_states, residual, debug_727, debug_728,idx)
+            if idx == 0:
+                debug_invarient(f"layer_{idx}", hidden_states, debug_727, debug_728)
         if not get_pp_group().is_last_rank:
             return IntermediateTensors(
                 {"hidden_states": hidden_states, "residual": residual}

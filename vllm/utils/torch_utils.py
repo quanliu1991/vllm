@@ -2,6 +2,7 @@
 # SPDX-FileCopyrightText: Copyright contributors to the vLLM project
 import contextlib
 import importlib.metadata
+import pickle
 import threading
 from collections.abc import Callable, Collection
 from functools import lru_cache
@@ -603,3 +604,15 @@ def direct_register_custom_op(
     my_lib.impl(op_name, op_func, dispatch_key=dispatch_key)
     if fake_impl is not None:
         my_lib._register_fake(op_name, fake_impl)
+
+def debug_invarient(name, hidden_states, debug_727, debug_728 ):
+    return None
+    if debug_727:
+        with open(f"/workspace/temp_debug_invarient/{name}_747.pkl", "wb") as f:
+            pickle.dump(hidden_states[0], f)
+    if debug_728:
+        with open(f"/workspace/temp_debug_invarient/{name}_747.pkl", "rb") as f:
+            temp = pickle.load(f)
+        # diff = (temp - hidden_states[1]).abs().max()
+        # if diff>0.0:
+        #     print(diff)

@@ -291,7 +291,7 @@ class OpenAIServingChat(OpenAIServing):
                         self.model_config.logits_processor_pattern,
                         self.default_sampling_params,
                     )
-
+                print(request_prompts[i])
                 self._log_inputs(
                     request_id,
                     request_prompts[i],

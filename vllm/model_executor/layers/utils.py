@@ -100,7 +100,9 @@ def default_unquantized_gemm(
     weight: torch.Tensor,
     bias: torch.Tensor | None = None,
 ):
-    return torch.nn.functional.linear(x, weight, bias)
+    a= "1"
+    res = torch.nn.functional.linear(x, weight, bias)
+    return res
 
 
 def rocm_unquantized_gemm_impl(

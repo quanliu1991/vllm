@@ -22,7 +22,6 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 """Inference-only Qwen3 model compatible with HuggingFace weights."""
-
 from collections.abc import Iterable
 from typing import Any
 
@@ -47,6 +46,7 @@ from .interfaces import SupportsEagle3, SupportsLoRA, SupportsPP
 from .qwen2 import Qwen2MLP as Qwen3MLP
 from .qwen2 import Qwen2Model
 from .utils import AutoWeightsLoader, PPMissingLayer, extract_layer_index, maybe_prefix
+from ...utils.torch_utils import debug_invarient
 
 logger = init_logger(__name__)
 
@@ -139,20 +139,35 @@ class Qwen3Attention(nn.Module):
     def forward(
         self,
         positions: torch.Tensor,
-        hidden_states: torch.Tensor,
+        hidden_states: torch.Tensor, debug_727, debug_728, idx
     ) -> torch.Tensor:
+        if idx == 0:
+            debug_invarient("self_attn_input", hidden_states, debug_727, debug_728)
         qkv, _ = self.qkv_proj(hidden_states)
+        if idx == 0:
+            debug_invarient("qkv_proj", qkv, debug_727, debug_728)
         q, k, v = qkv.split([self.q_size, self.kv_size, self.kv_size], dim=-1)
         # Add qk-norm
         q_by_head = q.view(*q.shape[:-1], q.shape[-1] // self.head_dim, self.head_dim)
         q_by_head = self.q_norm(q_by_head)
+        if idx == 0:
+            debug_invarient("q_norm", q_by_head, debug_727, debug_728)
         q = q_by_head.view(q.shape)
         k_by_head = k.view(*k.shape[:-1], k.shape[-1] // self.head_dim, self.head_dim)
         k_by_head = self.k_norm(k_by_head)
+        if idx == 0:
+            debug_invarient("k_norm", k_by_head, debug_727, debug_728)
         k = k_by_head.view(k.shape)
         q, k = self.rotary_emb(positions, q, k)
+        if idx == 0:
+            debug_invarient("rotary_emb_q", q, debug_727, debug_728)
+        if idx == 0:
+            debug_invarient("rotary_emb_k", k, debug_727, debug_728)
         attn_output = self.attn(q, k, v)
+        if idx == 0:
+            debug_invarient("attn", attn_output, debug_727, debug_728)
         output, _ = self.o_proj(attn_output)
+        # print(f"attention:{output}")
         return output
 
 
@@ -215,6 +230,7 @@ class Qwen3DecoderLayer(nn.Module):
         positions: torch.Tensor,
         hidden_states: torch.Tensor,
         residual: torch.Tensor | None,
+        debug_727, debug_728,idx
     ) -> tuple[torch.Tensor, torch.Tensor]:
         # Self Attention
         if residual is None:
@@ -222,14 +238,23 @@ class Qwen3DecoderLayer(nn.Module):
             hidden_states = self.input_layernorm(hidden_states)
         else:
             hidden_states, residual = self.input_layernorm(hidden_states, residual)
+        if idx == 0:
+            debug_invarient("input_layernorm", hidden_states, debug_727, debug_728)
         hidden_states = self.self_attn(
             positions=positions,
             hidden_states=hidden_states,
+            debug_727=debug_727, debug_728=debug_728, idx=idx
         )
+        if idx == 0:
+            debug_invarient("self_attn", hidden_states, debug_727, debug_728)
 
         # Fully Connected
         hidden_states, residual = self.post_attention_layernorm(hidden_states, residual)
+        if idx == 0:
+            debug_invarient("post_attention_layernorm", hidden_states, debug_727, debug_728)
         hidden_states = self.mlp(hidden_states)
+        if idx == 0:
+            debug_invarient("mlp", hidden_states,debug_727, debug_728)
         return hidden_states, residual
 
 
@@ -300,6 +325,8 @@ class Qwen3ForCausalLM(nn.Module, SupportsLoRA, SupportsPP, SupportsEagle3):
         self.make_empty_intermediate_tensors = (
             self.model.make_empty_intermediate_tensors
         )
+        self.i =0
+        self.debug_727, self.debug_728 = False, False
 
     def set_aux_hidden_state_layers(self, layers: tuple[int, ...]) -> None:
         self.model.aux_hidden_state_layers = layers
@@ -318,9 +345,20 @@ class Qwen3ForCausalLM(nn.Module, SupportsLoRA, SupportsPP, SupportsEagle3):
         intermediate_tensors: IntermediateTensors | None = None,
         inputs_embeds: torch.Tensor | None = None,
     ) -> torch.Tensor | IntermediateTensors:
+        self.i += 1
+        if self.debug_728:
+            self.debug_728 = False
+        if self.debug_727:
+            self.debug_727 = False
+            self.debug_728 = True
+        if self.i == 727:
+            print("debug")
+            self.debug_727 = True
+
         hidden_states = self.model(
-            input_ids, positions, intermediate_tensors, inputs_embeds
+            input_ids, positions, intermediate_tensors, inputs_embeds, self.debug_727, self.debug_728
         )
+        print(f"model:{self.i} {hidden_states}")
         return hidden_states
 
     def compute_logits(

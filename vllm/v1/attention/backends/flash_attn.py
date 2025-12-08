@@ -515,6 +515,7 @@ class FlashAttentionImpl(AttentionImpl):
         output: torch.Tensor | None = None,
         output_scale: torch.Tensor | None = None,
         output_block_scale: torch.Tensor | None = None,
+            # debug_727=False, debug_728=False, idx=1
     ) -> torch.Tensor:
         """Forward pass with FlashAttention.
 
@@ -630,6 +631,7 @@ class FlashAttentionImpl(AttentionImpl):
                 )
                 return output
             else:
+                print(f"attn_metadata.max_num_splits:{attn_metadata.max_num_splits}")
                 flash_attn_varlen_func(
                     q=query[:num_actual_tokens],
                     k=key_cache,
@@ -652,6 +654,7 @@ class FlashAttentionImpl(AttentionImpl):
                     v_descale=layer._v_scale.expand(descale_shape),
                     num_splits=attn_metadata.max_num_splits,
                     s_aux=self.sinks,
+                    # debug_727=debug_727, debug_728=debug_728, idx=idx
                 )
                 return output
 
