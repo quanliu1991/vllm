@@ -523,7 +523,7 @@ async def benchmark(
         keepalive_timeout=60,
         enable_cleanup_closed=True,
         force_close=False,
-        ssl=("https://" in api_url),
+        ssl=("https://" not in api_url),
     )
 
     session = aiohttp.ClientSession(
