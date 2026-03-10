@@ -22,14 +22,12 @@ RUN pip install --no-cache-dir \
 COPY ./vllm/vllm /usr/local/lib/python3.12/dist-packages/vllm
 
 RUN mkdir /workspace/hb-serve
-COPY ./vllm/run.sh  /workspace/hb-serve/run.sh
 COPY ./vllm/run_glm.sh  /workspace/hb-serve/run_glm.sh
 
 RUN useradd hn-user -d /root -u 6666
 RUN mkdir logs tmp
 RUN chown -R hn-user.hn-user logs tmp
 RUN chmod -R 777 /root
-RUN chmod 777 /workspace/hb-serve/run.sh
 RUN rm -rf /root/.cache/uv
 USER hn-user
 
