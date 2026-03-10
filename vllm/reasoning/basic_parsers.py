@@ -122,7 +122,7 @@ class BaseThinkingReasoningParser(ReasoningParser):
                 reasoning = delta_text[:end_index]
                 content = delta_text[end_index + len(self.end_token) :]
                 return DeltaMessage(
-                    reasoning=reasoning, content=content if content else None
+                    reasoning_content = delta_text[:end_index], reasoning=reasoning, content=content if content else None
                 )
             elif self.end_token_id in previous_token_ids:
                 # start token in previous, end token in previous,
@@ -131,7 +131,7 @@ class BaseThinkingReasoningParser(ReasoningParser):
             else:
                 # start token in previous, no end token in previous or delta,
                 # reasoning content continues
-                return DeltaMessage(reasoning=delta_text)
+                return DeltaMessage(reasoning_content=delta_text, reasoning=delta_text)
         elif self.start_token_id in delta_token_ids:
             if self.end_token_id in delta_token_ids:
                 # start token in delta, end token in delta,
@@ -141,12 +141,13 @@ class BaseThinkingReasoningParser(ReasoningParser):
                 reasoning = delta_text[start_index + len(self.start_token) : end_index]
                 content = delta_text[end_index + len(self.end_token) :]
                 return DeltaMessage(
+                    reasoning_content=reasoning,
                     reasoning=reasoning, content=content if content else None
                 )
             else:
                 # start token in delta, no end token in delta,
                 # reasoning content continues
-                return DeltaMessage(reasoning=delta_text)
+                return DeltaMessage(reasoning_content=delta_text, reasoning=delta_text)
         else:
             # not find thinking start token
             return DeltaMessage(content=delta_text)

@@ -1468,6 +1468,7 @@ class OpenAIServingChat(OpenAIServing):
                     message = ChatMessage(
                         role=role,
                         reasoning=reasoning,
+                        reasoning_content=reasoning,
                         content=content,
                         tool_calls=tool_call_info.tool_calls,
                     )
@@ -1475,6 +1476,7 @@ class OpenAIServingChat(OpenAIServing):
                     message = ChatMessage(
                         role=role,
                         reasoning=reasoning,
+                        reasoning_content=reasoning,
                         content=content,
                     )
 
@@ -1528,6 +1530,7 @@ class OpenAIServingChat(OpenAIServing):
                 message = ChatMessage(
                     role=role,
                     reasoning=reasoning,
+                    reasoning_content=reasoning,
                     content=content,
                     tool_calls=tool_calls if tool_calls else [],
                 )
@@ -1536,7 +1539,7 @@ class OpenAIServingChat(OpenAIServing):
                 not isinstance(request.tool_choice, ChatCompletionNamedToolChoiceParam)
                 and request.tool_choice != "required"
             ):
-                message = ChatMessage(role=role, reasoning=reasoning, content=content)
+                message = ChatMessage(role=role, reasoning=reasoning, reasoning_content=reasoning, content=content)
 
             elif (
                 request.tool_choice
@@ -1570,6 +1573,7 @@ class OpenAIServingChat(OpenAIServing):
                 message = ChatMessage(
                     role=role,
                     reasoning=reasoning,
+                    reasoning_content=reasoning,
                     content="",
                     tool_calls=tool_call_class_items,
                 )
@@ -1607,12 +1611,13 @@ class OpenAIServingChat(OpenAIServing):
                     content="",
                     tool_calls=tool_call_class_items,
                     reasoning=reasoning,
+                    reasoning_content=reasoning,
                 )
 
             # if the request doesn't use tool choice
             # OR specifies to not use a tool
             elif not request.tool_choice or request.tool_choice == "none":
-                message = ChatMessage(role=role, reasoning=reasoning, content=content)
+                message = ChatMessage(role=role, reasoning=reasoning, reasoning_content=reasoning, content=content)
 
             # handle when there are tools and tool choice is auto
             elif (
@@ -1653,6 +1658,7 @@ class OpenAIServingChat(OpenAIServing):
                     message = ChatMessage(
                         role=role,
                         reasoning=reasoning,
+                        reasoning_content=reasoning,
                         content=content,
                         tool_calls=tool_call_items,
                     )
@@ -1669,6 +1675,7 @@ class OpenAIServingChat(OpenAIServing):
                     message = ChatMessage(
                         role=role,
                         reasoning=reasoning,
+                        reasoning_content=reasoning,
                         content=ret_content,
                     )
 
@@ -1679,7 +1686,7 @@ class OpenAIServingChat(OpenAIServing):
                     " if tools should be extracted. Returning a standard chat "
                     "completion."
                 )
-                message = ChatMessage(role=role, reasoning=reasoning, content=content)
+                message = ChatMessage(role=role, reasoning=reasoning, reasoning_content=reasoning, content=content)
             # In OpenAI's API, when a tool is called, the finish_reason is:
             # "tool_calls" for "auto" or "required" tool calls,
             # and "stop" for named tool calls.

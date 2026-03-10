@@ -54,6 +54,7 @@ class DeepSeekR1ReasoningParser(BaseThinkingReasoningParser):
                 reasoning = delta_text[:end_index]
                 content = delta_text[end_index + len(self.end_token) :]
                 return DeltaMessage(
+                    reasoning_content=reasoning,
                     reasoning=reasoning,
                     content=content if content else None,
                 )
@@ -62,6 +63,6 @@ class DeepSeekR1ReasoningParser(BaseThinkingReasoningParser):
                 return DeltaMessage(content=delta_text)
             else:
                 # no end token in previous or delta, reasoning content continues
-                return DeltaMessage(reasoning=delta_text)
+                return DeltaMessage(reasoning_content=delta_text, reasoning=delta_text)
 
         return ret
