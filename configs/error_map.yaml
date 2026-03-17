@@ -1,0 +1,18 @@
+errors:
+  - keyword: "structured_output_compiled_failed"
+    ch_title: "结构化输出"
+    ch_message: "输出约束表达式编译失败，请按照错误提示优化约束表达式。1.请按照json schema或正则表达式规范。2.如果state number:5001 错误请减少约束表达式的复杂度。3.其他错误，联系系统管理员。"
+    en_title: "Structured Output"
+    en_message: "The compilation of the output constraint expression failed. Please check if the expression meets the requirements."
+
+  - keyword: "This model's maximum context length"
+    ch_title: "请求上下文超长"
+    ch_message: "模型请求上下文超限，请检查提示词是否超长或者合理设置max_tokens值。"
+    en_title: "Request context too long"
+    en_message: "The model request context is out of limit, please check whether the prompt is too long or the max_tokens value is set appropriately"
+
+  - keyword: "The model `"
+    ch_title: "模型名字不存在"
+    ch_message: "请求的模型名字不存在，请输入正确的模型名字。"
+    en_title: "Model name does not exist"
+    en_message: "The requested model name does not exist. Please enter the correct model name."
