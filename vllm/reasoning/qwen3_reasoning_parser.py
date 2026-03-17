@@ -52,6 +52,29 @@ class Qwen3ReasoningParser(BaseThinkingReasoningParser):
         """The token that ends reasoning content."""
         return "</think>"
 
+
+    def get_reasoning_end_suffix(self, input_ids: list[int] | str) -> str:
+        if isinstance(input_ids, str):
+            input_ids = self.model_tokenizer.encode(input_ids)
+        if self.end_token_id in input_ids:
+            think_end_token_id_index = input_ids.index(self.end_token_id)
+
+            if len(input_ids) > think_end_token_id_index + 1:
+                # if self.newline_with_think_end_token_id == input_ids[think_end_token_id_index + 1]:
+                #
+                #
+                #     think_tag_suffix = self.newline_with_think
+                #     return think_tag_suffix
+
+                # else:
+                think_tag_suffix = self.model_tokenizer.decode(input_ids[think_end_token_id_index + 1])
+                return think_tag_suffix
+        if len(input_ids) == 4096:
+            think_tag_suffix = self.model_tokenizer.decode(input_ids[-1])
+            return think_tag_suffix
+
+        return ""
+
     def extract_reasoning(
         self, model_output: str, request: ChatCompletionRequest | ResponsesRequest
     ) -> tuple[str | None, str | None]:
@@ -72,9 +95,9 @@ class Qwen3ReasoningParser(BaseThinkingReasoningParser):
         Returns:
             tuple[Optional[str], Optional[str]]: reasoning content and content
         """
-
+        think_tag_suffix = self.get_reasoning_end_suffix(model_output)
         # Strip <think> if present in the generated output.
-        model_output_parts = model_output.partition(self.start_token)
+        model_output_parts = model_output.partition(self.start_token + "\n")
         model_output = (
             model_output_parts[2] if model_output_parts[1] else model_output_parts[0]
         )
@@ -88,8 +111,7 @@ class Qwen3ReasoningParser(BaseThinkingReasoningParser):
             return model_output, None
 
         # Extract reasoning content from the model output.
-        reasoning, _, content = model_output.partition(self.end_token)
-
+        reasoning, _, content = model_output.partition(self.end_token + think_tag_suffix)
         final_content = content or None
         return reasoning, final_content
 
@@ -114,6 +136,8 @@ class Qwen3ReasoningParser(BaseThinkingReasoningParser):
         prompt_is_reasoning_end and routes deltas as content without
         calling this method.
         """
+
+        think_tag_suffix = self.get_reasoning_end_suffix(list(current_token_ids))
         # Strip <think> from delta if present (old template / edge case
         # where the model generates <think> itself).
         if self.start_token_id in delta_token_ids:
@@ -131,6 +155,7 @@ class Qwen3ReasoningParser(BaseThinkingReasoningParser):
                     return None
                 return DeltaMessage(
                     reasoning=reasoning if reasoning else None,
+                    reasoning_content=reasoning if reasoning else None,
                     content=content if content else None,
                 )
             # end_token_id in IDs but not in text (already stripped)
@@ -142,7 +167,8 @@ class Qwen3ReasoningParser(BaseThinkingReasoningParser):
             return None
         elif self.end_token_id in previous_token_ids:
             # End token already passed: everything is content now.
+            delta_text = delta_text.removeprefix(think_tag_suffix)
             return DeltaMessage(content=delta_text)
         else:
             # No end token yet: still in reasoning phase.
-            return DeltaMessage(reasoning=delta_text)
+            return DeltaMessage(reasoning=delta_text, reasoning_content=delta_text)

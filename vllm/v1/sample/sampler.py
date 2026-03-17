@@ -13,6 +13,7 @@ from vllm.v1.sample.ops.bad_words import apply_bad_words
 from vllm.v1.sample.ops.logprobs import batched_count_greater_than
 from vllm.v1.sample.ops.penalties import apply_all_penalties
 from vllm.v1.sample.ops.topk_topp_sampler import TopKTopPSampler
+from vllm.v1.sample.ops.reasoning_sampler import apply_reasoning_stop_length
 
 _SAMPLING_EPS = 1e-5
 
@@ -290,6 +291,11 @@ class Sampler(nn.Module):
         # Apply bad words exclusion.
         if bad_words_token_ids:
             apply_bad_words(logits, bad_words_token_ids, output_token_ids)
+
+        # todo 优化 如果思考模式则走该逻辑
+        logits = apply_reasoning_stop_length(logits,
+                                             sampling_metadata.output_token_ids,
+                                             sampling_metadata.max_thinking_tokens)
 
         # Apply logits processors which can impact greedy sampling.
         for processor in sampling_metadata.logitsprocs.non_argmax_invariant:

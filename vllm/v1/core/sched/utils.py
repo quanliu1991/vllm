@@ -5,6 +5,10 @@ from collections.abc import Sequence
 
 from vllm.sampling_params import RepetitionDetectionParams
 from vllm.v1.request import Request, RequestStatus
+import os
+OPEN_THINK_TAG = 248068 #int(os.getenv("OPEN_THINK_TAG", 151667))
+CLOSE_THINK_TAG = 248069 #int(os.getenv("CLOSE_THINK_TAG", 151668))
+
 
 
 def _has_repeating_pattern(
@@ -92,6 +96,26 @@ def remove_all(lst: list, items_to_remove: set) -> list:
 
 
 def check_stop(request: Request, max_model_len: int) -> bool:
+    is_thinking = False
+    if request.all_token_ids[request.num_prompt_tokens-2] == OPEN_THINK_TAG: # -2 is <think> 被拼接到prompt中
+        is_thinking = True
+    if is_thinking:
+        if CLOSE_THINK_TAG in request.all_token_ids[request.num_prompt_tokens:]:
+            think_close_index = request.all_token_ids[request.num_prompt_tokens:].index(CLOSE_THINK_TAG)
+            number_answer_tokens = request.num_output_tokens - think_close_index + 1
+            if (request.num_tokens >= max_model_len
+                    or number_answer_tokens >= request.max_tokens):
+                request.status = RequestStatus.FINISHED_LENGTH_CAPPED
+                return True
+        else:
+            return False
+    elif (request.num_tokens >= max_model_len
+
+        or request.num_output_tokens >= request.max_tokens
+    ):
+        request.status = RequestStatus.FINISHED_LENGTH_CAPPED
+        return True
+
     assert not request.pooling_params
 
     sampling_params = request.sampling_params
@@ -108,12 +132,6 @@ def check_stop(request: Request, max_model_len: int) -> bool:
     if last_token_id in (sampling_params.stop_token_ids or ()):
         request.status = RequestStatus.FINISHED_STOPPED
         request.stop_reason = last_token_id
-        return True
-    if (
-        request.num_tokens >= max_model_len
-        or request.num_output_tokens >= request.max_tokens
-    ):
-        request.status = RequestStatus.FINISHED_LENGTH_CAPPED
         return True
 
     repetition_detection = sampling_params.repetition_detection
