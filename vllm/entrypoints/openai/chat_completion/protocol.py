@@ -337,6 +337,10 @@ class ChatCompletionRequest(OpenAIBaseModel):
             "numeric values, used by custom extensions."
         ),
     )
+    guided_regex: str|None = None
+    guided_json: dict|str|None = None
+    guided_choice: list[str]|None = None
+    reasoning: bool|None = False
 
     repetition_detection: RepetitionDetectionParams | None = Field(
         default=None,
@@ -355,6 +359,11 @@ class ChatCompletionRequest(OpenAIBaseModel):
         default_template: str | None,
         default_template_content_format: ChatTemplateContentFormatOption,
     ) -> ChatParams:
+        if self.chat_template_kwargs is None:
+            if self.reasoning:
+                self.chat_template_kwargs = {"enable_thinking": True}
+            else:
+                self.chat_template_kwargs = {"enable_thinking": False}
         return ChatParams(
             chat_template=self.chat_template or default_template,
             chat_template_content_format=default_template_content_format,
@@ -370,6 +379,8 @@ class ChatCompletionRequest(OpenAIBaseModel):
         )
 
     def build_tok_params(self, model_config: ModelConfig) -> TokenizeParams:
+        if self.max_completion_tokens is None and self.max_tokens is None:
+            self.max_tokens = 1024
         if self.max_completion_tokens is not None:
             max_output_tokens: int | None = self.max_completion_tokens
             max_output_tokens_param = "max_completion_tokens"
@@ -590,6 +601,16 @@ class ChatCompletionRequest(OpenAIBaseModel):
     def check_structured_outputs_count(cls, data):
         if isinstance(data, ValueError):
             raise data
+        guided_json = data.get("guided_json", None)
+        guided_regex = data.get("guided_regex", None)
+        guided_choice = data.get("guided_choice", None)
+        if guided_json is not None:
+            data["structured_outputs"] = {"json": guided_json}
+        if guided_regex is not None:
+            data["structured_outputs"] = {"regex": guided_regex}
+        if guided_choice is not None:
+            data["structured_outputs"] = {"choice": guided_choice}
+
 
         if data.get("structured_outputs", None) is None:
             return data
