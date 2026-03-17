@@ -1,10 +1,12 @@
 # SPDX-License-Identifier: Apache-2.0
 # SPDX-FileCopyrightText: Copyright contributors to the vLLM project
+import _thread
 import importlib
 import inspect
 import multiprocessing
 import multiprocessing.forkserver as forkserver
 import os
+import re
 import signal
 import socket
 import tempfile
@@ -18,7 +20,15 @@ import uvloop
 from fastapi import FastAPI, HTTPException
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
+# from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
+from prometheus_client import make_asgi_app
+from prometheus_fastapi_instrumentator import Instrumentator
 from starlette.datastructures import State
+from starlette.routing import Mount
+
+from vllm.entrypoints.serve.instrumentator.metrics import PrometheusResponse
+from vllm.transformers_utils.runai_utils import is_runai_obj_uri
+from vllm.transformers_utils.utils import is_s3
 
 import vllm.envs as envs
 from vllm.engine.arg_utils import AsyncEngineArgs
@@ -51,17 +61,31 @@ from vllm.logger import init_logger
 from vllm.reasoning import ReasoningParserManager
 from vllm.tasks import POOLING_TASKS, SupportedTask
 from vllm.tool_parsers import ToolParserManager
-from vllm.tracing import instrument
+from vllm.tracing import instrument, init_tracer
 from vllm.usage.usage_lib import UsageContext
 from vllm.utils.argparse_utils import FlexibleArgumentParser
 from vllm.utils.network_utils import is_valid_ipv6_address
 from vllm.utils.system_utils import decorate_logs, set_ulimit
+from vllm.v1.metrics.prometheus import get_prometheus_registry
 from vllm.version import __version__ as VLLM_VERSION
+from vllm.entrypoints.openai.hb_serve.consul_client import ConsulList
+from vllm.entrypoints.openai.hb_serve.hb_cli_args import make_hb_arg_parser
+from vllm.entrypoints.openai.hb_serve.logger import ContextualLoggerAdapter, SingleLogger, to_serializable, \
+    request_parse
+from vllm.entrypoints.openai.hb_serve.security.encrypt import Encrypt
+from vllm.entrypoints.openai.hb_serve import hot_swaps_settings, const
+from vllm.entrypoints.openai.hb_serve.const import get_host_ip
+
+TIMEOUT_KEEP_ALIVE = 5  # seconds
 
 prometheus_multiproc_dir: tempfile.TemporaryDirectory
 
 # Cannot use __name__ (https://github.com/vllm-project/vllm/pull/4765)
-logger = init_logger("vllm.entrypoints.openai.api_server")
+# logger = init_logger("vllm.entrypoints.openai.api_server")
+logger = SingleLogger.get_logger()
+request_logger = ContextualLoggerAdapter(logger, {'sid': None, 'qid': None, 'aid': None, 'iid': None,
+                                                     'rid': None, 'uid': None, 'category': None})
+
 
 _FALLBACK_SUPPORTED_TASKS: tuple[SupportedTask, ...] = ("generate",)
 
@@ -69,6 +93,7 @@ _FALLBACK_SUPPORTED_TASKS: tuple[SupportedTask, ...] = ("generate",)
 @asynccontextmanager
 async def build_async_engine_client(
     args: Namespace,
+    consul_list=None,
     *,
     usage_context: UsageContext = UsageContext.OPENAI_API_SERVER,
     disable_frontend_multiprocessing: bool | None = None,
@@ -85,21 +110,23 @@ async def build_async_engine_client(
 
     # Context manager to handle engine_client lifecycle
     # Ensures everything is shutdown and cleaned up on error/exit
-    engine_args = AsyncEngineArgs.from_cli_args(args)
-    if client_config:
-        engine_args._api_process_count = client_config.get("client_count", 1)
-        engine_args._api_process_rank = client_config.get("client_index", 0)
+    with Encrypt(args, consul_list=consul_list) as encrypt:
+        engine_args = AsyncEngineArgs.from_cli_args(encrypt.args)
+        if client_config:
+            engine_args._api_process_count = client_config.get("client_count", 1)
+            engine_args._api_process_rank = client_config.get("client_index", 0)
 
-    if disable_frontend_multiprocessing is None:
-        disable_frontend_multiprocessing = bool(args.disable_frontend_multiprocessing)
+        if disable_frontend_multiprocessing is None:
+            disable_frontend_multiprocessing = bool(
+                args.disable_frontend_multiprocessing)
 
-    async with build_async_engine_client_from_engine_args(
-        engine_args,
-        usage_context=usage_context,
-        disable_frontend_multiprocessing=disable_frontend_multiprocessing,
-        client_config=client_config,
-    ) as engine:
-        yield engine
+        async with build_async_engine_client_from_engine_args(
+                engine_args,
+                usage_context=usage_context,
+                disable_frontend_multiprocessing=disable_frontend_multiprocessing,
+                client_config=client_config,
+        ) as engine:
+            yield engine
 
 
 @asynccontextmanager
@@ -154,6 +181,33 @@ async def build_async_engine_client_from_engine_args(
         if async_llm:
             async_llm.shutdown()
 
+def mount_metrics(app: FastAPI):
+    """Mount prometheus metrics to a FastAPI app."""
+
+    registry = get_prometheus_registry()
+
+    # `response_class=PrometheusResponse` is needed to return an HTTP response
+    # with header "Content-Type: text/plain; version=0.0.4; charset=utf-8"
+    # instead of the default "application/json" which is incorrect.
+    # See https://github.com/trallnag/prometheus-fastapi-instrumentator/issues/163#issue-1296092364
+    Instrumentator(
+        excluded_handlers=[
+            "/metrics",
+            "/health",
+            "/load",
+            "/ping",
+            "/version",
+            "/server_info",
+        ],
+        registry=registry,
+    ).add().instrument(app).expose(app, response_class=PrometheusResponse)
+
+    # Add prometheus asgi middleware to route /metrics requests
+    metrics_route = Mount("/metrics", make_asgi_app(registry=registry))
+
+    # Workaround for 307 Redirect for /metrics
+    metrics_route.path_regex = re.compile("^/metrics(?P<path>.*)$")
+    app.routes.append(metrics_route)
 
 def build_app(
     args: Namespace, supported_tasks: tuple["SupportedTask", ...] | None = None
@@ -239,6 +293,11 @@ def build_app(
         register_pooling_api_routers(app, supported_tasks)
 
     app.root_path = args.root_path
+    # FastAPIInstrumentor.instrument_app(app,
+    #                                    excluded_urls="/health,/metrics",
+    #                                    exclude_spans=["send", "receive"]
+    #                                    )
+    mount_metrics(app)
     app.add_middleware(
         CORSMiddleware,
         allow_origins=args.allowed_origins,
@@ -323,6 +382,10 @@ async def init_app_state(
     state.log_stats = not args.disable_log_stats
     state.vllm_config = vllm_config
     state.args = args
+    if args.otlp_traces_endpoint:
+        state.trace = init_tracer(
+            __name__,
+            args.otlp_traces_endpoint)
     resolved_chat_template = load_chat_template(args.chat_template)
 
     # Merge default_mm_loras into the static lora_modules
@@ -486,10 +549,11 @@ async def run_server_worker(
     log_config = get_uvicorn_log_config(args)
     if log_config is not None:
         uvicorn_kwargs["log_config"] = log_config
-
+    consul_list = ConsulList(args)
     async with build_async_engine_client(
         args,
         client_config=client_config,
+        consul_list=consul_list
     ) as engine_client:
         supported_tasks = await engine_client.get_supported_tasks()
         logger.info("Supported tasks: %s", supported_tasks)
@@ -502,6 +566,11 @@ async def run_server_worker(
             engine_client.vllm_config.parallel_config._api_process_rank,
             listen_address,
         )
+        allow_consul = args.allow_consul == 'true'
+        if allow_consul:
+            _thread.start_new_thread(hot_swaps_settings.check_hot_swaps_serve, ())
+
+        consul_list.update_consul_list("2")
         shutdown_task = await serve_http(
             app,
             sock=sock,
@@ -539,7 +608,26 @@ if __name__ == "__main__":
         description="vLLM OpenAI-Compatible RESTful API server."
     )
     parser = make_arg_parser(parser)
+    parser = make_hb_arg_parser(parser)
     args = parser.parse_args()
+    if args.host in ['0.0.0.0', 'localhost']:
+        args.host = get_host_ip()
     validate_parsed_serve_args(args)
+
+    if is_runai_obj_uri(args.model) or is_s3(args.lora_models if args.lora_models else ""):
+        args.load_format = "runai_streamer"
+        os.environ["AWS_REGION"] = "us-east-1"
+        os.environ["RUNAI_STREAMER_S3_USE_VIRTUAL_ADDRESSING"] = "0"
+        os.environ["RUNAI_STREAMER_NO_BOTO3_SESSION"] = "16"
+
+        os.environ["AWS_ACCESS_KEY_ID"] = os.environ["MINIO_ACCESS_KEY"]
+        os.environ["AWS_SECRET_ACCESS_KEY"] = os.environ["MINIO_SECRET_KEY"]
+        os.environ["AWS_ENDPOINT_URL"] = "http://" + os.environ["MINIO_ENDPOINT"]
+
+        if is_s3(args.lora_models):
+            os.environ["VLLM_ALLOW_RUNTIME_LORA_UPDATING"] = "true"
+            os.environ["VLLM_PLUGINS"] = '["s3_adapter_resolver"]'
+            os.environ["VLLM_LORA_RESOLVER_CACHE_DIR"] = "/workspace/adapters"
+            os.environ["S3_PATH"] = args.lora_models
 
     uvloop.run(run_server(args))
