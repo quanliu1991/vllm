@@ -329,7 +329,7 @@ class OpenAIServingChat(OpenAIServing):
         tokenizer = self.renderer.tokenizer
         assert tokenizer is not None
         reasoning_parser: ReasoningParser | None = None
-        result = await self.render_chat_request(request)
+
         try:
             if self.reasoning_parser_cls:
                 # Pass the same chat template kwargs as used in tokenization
@@ -344,7 +344,7 @@ class OpenAIServingChat(OpenAIServing):
         except RuntimeError as e:
             logger.exception("Error in reasoning parser creation.")
             return self.create_error_response(str(e))
-
+        result = await self.render_chat_request(request)
         if isinstance(result, ErrorResponse):
             return result
 

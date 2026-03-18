@@ -73,7 +73,9 @@ class BaseThinkingReasoningParser(ReasoningParser):
         for i in range(len(input_ids) - 1, -1, -1):
             if input_ids[i] == start_token_id:
                 return False
-            if input_ids[i] == end_token_id:
+            if input_ids[i-1] == end_token_id and input_ids[i] == 271: # todo token id
+                return True
+            if input_ids[i-1] == end_token_id and len(input_ids) > i:
                 return True
         return False
 

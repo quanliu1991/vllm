@@ -58,17 +58,11 @@ class Qwen3ReasoningParser(BaseThinkingReasoningParser):
             input_ids = self.model_tokenizer.encode(input_ids)
         if self.end_token_id in input_ids:
             think_end_token_id_index = input_ids.index(self.end_token_id)
-
             if len(input_ids) > think_end_token_id_index + 1:
-                # if self.newline_with_think_end_token_id == input_ids[think_end_token_id_index + 1]:
-                #
-                #
-                #     think_tag_suffix = self.newline_with_think
-                #     return think_tag_suffix
-
-                # else:
                 think_tag_suffix = self.model_tokenizer.decode(input_ids[think_end_token_id_index + 1])
-                return think_tag_suffix
+                if think_tag_suffix == "\n\n":
+                    return think_tag_suffix
+                return ""
         if len(input_ids) == 4096:
             think_tag_suffix = self.model_tokenizer.decode(input_ids[-1])
             return think_tag_suffix
