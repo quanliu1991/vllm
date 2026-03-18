@@ -41,6 +41,9 @@ class Qwen3ReasoningParser(BaseThinkingReasoningParser):
         # Qwen3 defaults to thinking enabled; only treat output as
         # pure content when the user explicitly disables it.
         self.thinking_enabled = chat_kwargs.get("enable_thinking", True)
+        # Avoid runtime tokenizer encode/decode in hot path. We only need to
+        # detect whether the token immediately after </think> is "\n\n".
+        self._double_newline_token_id = self.vocab.get("\n\n")
 
     @property
     def start_token(self) -> str:
@@ -54,18 +57,28 @@ class Qwen3ReasoningParser(BaseThinkingReasoningParser):
 
 
     def get_reasoning_end_suffix(self, input_ids: list[int] | str) -> str:
+        # String path: do not tokenize; just inspect the raw text.
         if isinstance(input_ids, str):
-            input_ids = self.model_tokenizer.encode(input_ids)
+            end_idx = input_ids.find(self.end_token)
+            if end_idx >= 0:
+                after = input_ids[end_idx + len(self.end_token) :]
+                return "\n\n" if after.startswith("\n\n") else ""
+            return ""
+
+        # Token-id path: compare token ids only (no decode).
         if self.end_token_id in input_ids:
-            think_end_token_id_index = input_ids.index(self.end_token_id)
-            if len(input_ids) > think_end_token_id_index + 1:
-                think_tag_suffix = self.model_tokenizer.decode(input_ids[think_end_token_id_index + 1])
-                if think_tag_suffix == "\n\n":
-                    return think_tag_suffix
-                return ""
+            idx = input_ids.index(self.end_token_id)
+            if len(input_ids) > idx + 1 and self._double_newline_token_id is not None:
+                return "\n\n" if input_ids[idx + 1] == self._double_newline_token_id else ""
+            if len(input_ids) > idx + 1:
+                # Fallback for tokenizers where "\n\n" is not a single vocab token.
+                return "\n\n" if self.model_tokenizer.decode(input_ids[idx + 1]) == "\n\n" else ""
+
+        # Heuristic for truncated text path (kept for backward compatibility).
         if len(input_ids) == 4096:
-            think_tag_suffix = self.model_tokenizer.decode(input_ids[-1])
-            return think_tag_suffix
+            if self._double_newline_token_id is not None:
+                return "\n\n" if input_ids[-1] == self._double_newline_token_id else ""
+            return self.model_tokenizer.decode(input_ids[-1])
 
         return ""
 
