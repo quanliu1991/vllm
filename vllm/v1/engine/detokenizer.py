@@ -30,6 +30,10 @@ INVALID_PREFIX_ERR_MSG = "Invalid prefix encountered"
 class IncrementalDetokenizer:
     def __init__(self):
         self.token_ids: list[int] = []
+        # Track text length per token for delta consistency
+        self.output_text_token_offset: list[int] = []
+        self.token_index: int = 0
+        self.delta_token_id_numbers: int = 0
 
     @property
     def output_token_ids(self) -> list[int]:
@@ -118,7 +122,10 @@ class BaseIncrementalDetokenizer(IncrementalDetokenizer, ABC):
         stop_check_offset = len(self.output_text)
         for new_token_id in new_token_ids:
             self.token_ids.append(new_token_id)
-            self.output_text += self.decode_next(new_token_id)
+            next_text = self.decode_next(new_token_id)
+            self.output_text += next_text
+            # Track text length for this token to maintain consistency
+            self.output_text_token_offset.append(len(next_text))
             # Support min_tokens, see https://github.com/vllm-project/vllm/pull/22014
             if self.min_tokens and self.num_output_tokens() <= self.min_tokens:
                 stop_check_offset = len(self.output_text)
@@ -137,6 +144,8 @@ class BaseIncrementalDetokenizer(IncrementalDetokenizer, ABC):
                 include_in_output=self.include_stop_str_in_output,
             )
             if stop is not None:
+                # Reset token index when stop string is found
+                self.token_index = 0
                 stop_string, truncate_to = stop
                 if truncate_to != -1:
                     self.output_text = self.output_text[:truncate_to]
@@ -160,9 +169,24 @@ class BaseIncrementalDetokenizer(IncrementalDetokenizer, ABC):
 
         length = len(self.output_text) - buffer_length
         last_offset = self._last_output_text_offset
-        if last_offset < length:
-            self._last_output_text_offset = length
-            return self.output_text[last_offset:length]
+        
+        # Track how many tokens correspond to the delta text
+        self.delta_token_id_numbers = 0
+        token_text_length = 0
+        cur_token_index = self.token_index
+        
+        # Calculate exact token boundaries for delta text
+        for i in range(cur_token_index, len(self.output_text_token_offset)):
+            if length - last_offset < token_text_length + self.output_text_token_offset[i]:
+                break
+            token_text_length += self.output_text_token_offset[i]
+            self.token_index += 1
+            self.delta_token_id_numbers += 1
+        
+        if self.token_index > cur_token_index:
+            self._last_output_text_offset = token_text_length + last_offset
+            return self.output_text[last_offset:self._last_output_text_offset]
+        
         return ""
 
 
