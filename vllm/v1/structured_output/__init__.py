@@ -157,12 +157,17 @@ class StructuredOutputManager:
         # Note that the request was validated in the engine core client,
         # so at this point we know it is a supported type of request.
         #
-        # TODO: we still need to handle xgrammar compilation failures,
-        # though it should be unlikely as we test that up front as well.
+        # Catch grammar compilation failures and return the exception as the grammar.
+        # The scheduler will detect this and abort the request gracefully.
         request_type, grammar_spec = key
 
-        assert self.backend is not None
-        return self.backend.compile_grammar(request_type, grammar_spec)
+        try:
+            assert self.backend is not None
+            compiled_grammar = self.backend.compile_grammar(request_type, grammar_spec)
+            return compiled_grammar
+        except Exception as e:
+            # Return the exception as the grammar so scheduler can handle it
+            return e  # type: ignore[return-value]
 
     def _fill_bitmasks(
         self, batch: Iterable[tuple[StructuredOutputGrammar, int, bool]]

@@ -1230,6 +1230,11 @@ class OpenAIServingChat(OpenAIServing):
 
                     # if the model is finished generating
                     else:
+                        # Check for abort finish reason (e.g., structured output compilation failure)
+                        if output.finish_reason == "abort":
+                            error_msg = output.stop_reason or "Request aborted"
+                            raise ValueError(error_msg)
+                        
                         # check for error finish reason and abort streaming
                         # finish_reason='error' indicates a retryable error
                         self._raise_if_error(output.finish_reason, request_id)
@@ -1447,6 +1452,11 @@ class OpenAIServingChat(OpenAIServing):
 
         role = self.get_chat_request_role(request)
         for output in final_res.outputs:
+            # Check for abort finish reason (e.g., structured output compilation failure)
+            if output.finish_reason == "abort":
+                error_msg = output.stop_reason or "Request aborted"
+                return self.create_error_response(error_msg)
+            
             # check for error finish reason and raise GenerationError
             # finish_reason='error' indicates a retryable request-level internal error
             self._raise_if_error(output.finish_reason, request_id)
