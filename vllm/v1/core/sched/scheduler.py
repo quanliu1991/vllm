@@ -500,6 +500,9 @@ class Scheduler(SchedulerInterface):
                             token_budget += num_scheduled_tokens.pop(preempted_req_id)
                             req_to_new_blocks.pop(preempted_req_id)
                             scheduled_spec_decode_tokens.pop(preempted_req_id, None)
+                            # Clean up structured output tracking for preempted request
+                            if preempted_req.use_structured_output:
+                                structured_output_request_ids.remove(preempted_req_id)
                             preempted_encoder_inputs = scheduled_encoder_inputs.pop(
                                 preempted_req_id, None
                             )
