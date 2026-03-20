@@ -16,11 +16,15 @@ logger = init_logger(__name__)
 
 
 def is_s3(model_or_path: str) -> bool:
-    return model_or_path.lower().startswith("s3://")
+    if model_or_path:
+        return model_or_path.lower().startswith("s3://")
+    return False
 
 
 def is_gcs(model_or_path: str) -> bool:
-    return model_or_path.lower().startswith("gs://")
+    if model_or_path:
+        return model_or_path.lower().startswith("gs://")
+    return False
 
 
 def is_cloud_storage(model_or_path: str) -> bool:
