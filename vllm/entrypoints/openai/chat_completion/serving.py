@@ -23,6 +23,10 @@ from vllm.entrypoints.chat_utils import (
     make_tool_call_id,
 )
 from vllm.entrypoints.logger import RequestLogger
+from vllm.entrypoints.openai.hb_serve import const
+from vllm.entrypoints.openai.hb_serve.const import PRIORITY_DICT
+from vllm.entrypoints.openai.hb_serve.hot_swaps_settings import get_global_swaps
+from vllm.entrypoints.openai.hb_serve.logger import request_parse
 from vllm.entrypoints.openai.chat_completion.protocol import (
     ChatCompletionLogProb,
     ChatCompletionLogProbs,
@@ -325,6 +329,21 @@ class OpenAIServingChat(OpenAIServing):
         for the API specification. This API mimics the OpenAI
         Chat Completion API.
         """
+        # Parse request headers for priority and other metadata
+        extra_dict, query = request_parse(request, raw_request)
+        order = extra_dict.get("order", "routine")
+        
+        # Validate order parameter
+        if order not in PRIORITY_DICT.keys():
+            hb_serve_status = const.HBServeStatus.BAD_HEADER
+            msg = f"ORDER should be in ['exclusive', 'priority', 'routine'], but got '{order}'."
+            return self.create_error_response(msg)
+        
+        # Set request priority based on order
+        # Priority mapping: exclusive=0, priority=1, routine=2
+        use_priority = get_global_swaps("USE_PRIORITY") == "true"
+        request.priority = PRIORITY_DICT.get(order, 2) if use_priority else 2
+        
         # Streaming response
         tokenizer = self.renderer.tokenizer
         assert tokenizer is not None
