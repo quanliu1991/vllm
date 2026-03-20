@@ -146,6 +146,13 @@ class SchedulerConfig:
     while a larger value (e.g., 10) reduces host overhead and may increase throughput
     by batching multiple tokens before sending."""
 
+    maximum_concurrency_with_exclusive: int = Field(default=10, ge=1)
+    """The maximum allowed concurrency when handling exclusive requests (priority=0).
+    If the number of exclusive requests exceeds this value during the initial
+    scheduling, the exceeding concurrency will be maintained. This ensures that
+    high-priority exclusive requests get preferential treatment by limiting the
+    total number of concurrent requests when exclusive requests are running."""
+
     @staticmethod
     def default_factory(**kwargs):
         """

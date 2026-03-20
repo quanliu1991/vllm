@@ -168,6 +168,9 @@ class Scheduler(SchedulerInterface):
         # This is flushed at the end of each scheduling step.
         self.finished_req_ids: set[str] = set()
 
+        # Track requests with structured output compilation failures
+        self.structured_output_compiled_failed: list[Request] = []
+
         # Counter for requests waiting for streaming input. Used to calculate
         # number of unfinished requests
         self.num_waiting_for_streaming_input: int = 0
@@ -232,6 +235,11 @@ class Scheduler(SchedulerInterface):
         )
         self.use_pp = self.parallel_config.pipeline_parallel_size > 1
         self.use_v2_model_runner = envs.VLLM_USE_V2_MODEL_RUNNER
+
+        # Priority queue: maximum concurrency when handling exclusive requests
+        self.maximum_concurrency_with_exclusive = (
+            self.scheduler_config.maximum_concurrency_with_exclusive
+        )
 
         def has_mamba_layers(kv_cache_config: KVCacheConfig) -> bool:
             return any(
@@ -353,6 +361,40 @@ class Scheduler(SchedulerInterface):
         scheduled_timestamp = time.monotonic()
 
         self.kv_cache_manager.new_step_starts()
+
+        # Priority Queue: Handle exclusive request preemption.
+        # Count running requests by priority (0 = exclusive, others = normal).
+        has_exclusive = False
+        exclusive_req_cnt_running = 0
+        other_req_cnt_running = 0
+        other_req_running: list[Request] = []
+        
+        for req in self.running:
+            if req.priority == 0:
+                has_exclusive = True
+                exclusive_req_cnt_running += 1
+            else:
+                other_req_cnt_running += 1
+                other_req_running.append(req)
+
+        # Preempt lower-priority requests if exclusive requests are running
+        # and total concurrency exceeds the limit.
+        if exclusive_req_cnt_running > 0:
+            while other_req_running:
+                total_concurrent = len(other_req_running) + exclusive_req_cnt_running
+                if total_concurrent <= self.maximum_concurrency_with_exclusive:
+                    break
+                    
+                # Preempt the lowest priority request.
+                req = other_req_running.pop()
+                self.running.remove(req)
+                self.kv_cache_manager.free(req)
+                req.status = RequestStatus.PREEMPTED
+                req.num_computed_tokens = 0
+                if self.log_stats:
+                    req.record_event(EngineCoreEventType.PREEMPTED, time.monotonic())
+                self.waiting.prepend_request(req)
+                preempted_reqs.append(req)
 
         # First, schedule the RUNNING requests.
         req_index = 0
@@ -533,13 +575,18 @@ class Scheduler(SchedulerInterface):
             assert len(scheduled_loras) <= self.lora_config.max_loras
 
         # Next, schedule the WAITING requests.
-        if not preempted_reqs and self._pause_state == PauseState.UNPAUSED:
+        # Allow scheduling if: no preemptions happened OR exclusive requests are running
+        if (has_exclusive or not preempted_reqs) and self._pause_state == PauseState.UNPAUSED:
             # Use a temporary RequestQueue to collect requests that need to be
             # skipped and put back at the head of the waiting queue later
             skipped_waiting_requests = create_request_queue(self.policy)
 
             while self.waiting and token_budget > 0:
                 if len(self.running) == self.max_num_running_reqs:
+                    break
+
+                # Limit concurrency when exclusive requests are running
+                if len(self.running) >= self.maximum_concurrency_with_exclusive and has_exclusive:
                     break
 
                 request = self.waiting.peek_request()
@@ -569,7 +616,16 @@ class Scheduler(SchedulerInterface):
                 if request.status == RequestStatus.WAITING_FOR_FSM:
                     structured_output_req = request.structured_output_request
                     if structured_output_req and structured_output_req.grammar:
-                        request.status = RequestStatus.WAITING
+                        # Check if grammar compilation failed (grammar is an Exception)
+                        if isinstance(structured_output_req.grammar, Exception):
+                            # Mark request as aborted due to compilation failure
+                            request.status = RequestStatus.FINISHED_ABORTED
+                            self.structured_output_compiled_failed.append(request)
+                            self.waiting.pop_request()
+                            continue
+                        else:
+                            # Grammar compiled successfully
+                            request.status = RequestStatus.WAITING
                     else:
                         self.waiting.pop_request()
                         skipped_waiting_requests.prepend_request(request)
