@@ -26,7 +26,12 @@ from vllm.entrypoints.logger import RequestLogger
 from vllm.entrypoints.openai.hb_serve import const
 from vllm.entrypoints.openai.hb_serve.const import PRIORITY_DICT
 from vllm.entrypoints.openai.hb_serve.hot_swaps_settings import get_global_swaps
-from vllm.entrypoints.openai.hb_serve.logger import request_parse
+from vllm.entrypoints.openai.hb_serve.logger import (
+    request_parse,
+    request_logs,
+    to_serializable,
+    Statu,
+)
 from vllm.entrypoints.openai.chat_completion.protocol import (
     ChatCompletionLogProb,
     ChatCompletionLogProbs,
@@ -372,6 +377,23 @@ class OpenAIServingChat(OpenAIServing):
         request_id = (
             f"chatcmpl-{self._base_request_id(raw_request, request.request_id)}"
         )
+        
+        # Log received request
+        extra_dict.update({"rid": request_id})
+        is_debug_from_request = extra_dict.get("is_debug_from_request", False)
+        request_json = to_serializable(request)
+        
+        # Log based on debug level
+        if is_debug_from_request or logger.getEffectiveLevel() == 10:  # logging.DEBUG
+            logger.info(
+                self.received_log_temp("Chat", request_logs(request_json, log_messages=True), Statu.SUCCESS.value),
+                extra=extra_dict
+            )
+        else:
+            logger.info(
+                self.received_log_temp("Chat", request_logs(request_json), Statu.SUCCESS.value),
+                extra=extra_dict
+            )
 
         request_metadata = RequestResponseMetadata(request_id=request_id)
         if raw_request:

@@ -1285,6 +1285,14 @@ class OpenAIServing:
             return True
         return self.models.is_base_model(model_name)
 
+    def received_log_temp(self, request_type: str, message: str, status: str) -> str:
+        """Template for received request logs."""
+        return f"Received {request_type}, msg: {message} status: {status}"
+
+    def log_temp(self, request_id: str, message: str, status: str) -> str:
+        """Template for request logs."""
+        return f"request: {request_id}, msg: {message} status: {status}"
+
 
 def clamp_prompt_logprobs(
     prompt_logprobs: PromptLogprobs | None,
