@@ -32,6 +32,9 @@ from vllm.entrypoints.openai.hb_serve.logger import (
     to_serializable,
     Statu,
 )
+from vllm.entrypoints.openai.hb_serve.request_logger.logger import (
+    save_request_logs_to_minio,
+)
 from vllm.entrypoints.openai.chat_completion.protocol import (
     ChatCompletionLogProb,
     ChatCompletionLogProbs,
@@ -394,6 +397,10 @@ class OpenAIServingChat(OpenAIServing):
                 self.received_log_temp("Chat", request_logs(request_json), Statu.SUCCESS.value),
                 extra=extra_dict
             )
+        
+        # Upload request logs to MinIO if enabled
+        if get_global_swaps("MINIO_ENABLE_LOG") == "true":
+            save_request_logs_to_minio(raw_request, request.model_dump(), extra_dict)
 
         request_metadata = RequestResponseMetadata(request_id=request_id)
         if raw_request:
