@@ -17,7 +17,7 @@ from contextlib import asynccontextmanager
 from typing import Any
 
 import uvloop
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Query, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 # from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
@@ -315,6 +315,90 @@ def build_app(
 
         app.add_middleware(AuthenticationMiddleware, tokens=tokens)
 
+    # hb-serve log and replay APIs (used by request_logger/gradio UI)
+    from fastapi.responses import JSONResponse, StreamingResponse
+    from vllm.entrypoints.openai.hb_serve.request_logger.replay import (
+        fetch_and_get_curl,
+        fetch_and_get_response,
+        fetch_and_run_curl,
+        list_curl_or_response_objects,
+    )
+
+    @app.get("/log_content")
+    async def get_log_content(object_name: str):
+        if object_name.endswith(".json"):
+            return {
+                "type": "response",
+                "content": fetch_and_get_response(object_name),
+            }
+        if object_name.endswith(".sh"):
+            return {
+                "type": "curl",
+                "content": fetch_and_get_curl(object_name),
+            }
+        return {"type": "unknown", "content": ""}
+
+    @app.get("/logs")
+    async def get_logs(
+        data: str,
+        prefix: str = "",
+        page: int = Query(1, ge=1),
+        size: int = Query(10, le=100),
+    ):
+        try:
+            offset = (page - 1) * size
+            return {
+                "curl": list_curl_or_response_objects(
+                    data,
+                    prefix,
+                    limit=size,
+                    offset=offset,
+                    suffix="curl.sh",
+                ),
+                "response": list_curl_or_response_objects(
+                    data,
+                    prefix,
+                    limit=size,
+                    offset=offset,
+                    suffix="json",
+                ),
+            }
+        except Exception as e:
+            return {"curl": str(e), "response": str(e)}
+
+    @app.post("/replay")
+    async def replay_log(
+        object_name: str,
+        host: str | None = Query(None),
+        port: str | None = Query(None),
+        stream: bool = Query(False),
+    ):
+        try:
+            if stream:
+                return StreamingResponse(
+                    fetch_and_run_curl(object_name, host, port),
+                    media_type="text/plain",
+                )
+
+            # Non-stream: return the whole replay output as JSON.
+            chunks: list[str] = []
+            for line in fetch_and_run_curl(object_name, host, port):
+                chunks.append(line)
+            return JSONResponse(content={"message": "".join(chunks)})
+        except Exception as e:
+            if stream:
+                return StreamingResponse(iter([str(e)]), media_type="text/plain")
+            return JSONResponse(content={"message": str(e)})
+
+    @app.get("/manage_config")
+    async def show_config(raw_request: Request):
+        hb_config = to_serializable(raw_request.app.state.args)
+        hb_config.pop("config_format", None)
+        hb_config["use_priority"] = hot_swaps_settings.get_global_swaps(
+            "USE_PRIORITY"
+        )
+        return JSONResponse(content=hb_config, status_code=200)
+
     if args.enable_request_id_headers:
         from vllm.entrypoints.openai.server_utils import XRequestIdMiddleware
 
@@ -437,6 +521,21 @@ async def init_app_state(
         from vllm.entrypoints.pooling import init_pooling_state
 
         init_pooling_state(engine_client, state, args, request_logger, supported_tasks)
+
+    # hb-serve metrics (used by custom hb_serve instrumentation).
+    from vllm.entrypoints.openai.hb_serve.metrics import Metrics
+
+    state.hb_serve_metrics = Metrics(["model_name", "reasoning"])
+    model_name = (
+        args.served_model_name[0]
+        if isinstance(args.served_model_name, list)
+        else args.served_model_name
+        if args.served_model_name is not None
+        else args.model
+    )
+    state.hb_serve_metrics.init_counter(
+        dict(model_name=model_name, reasoning="False")
+    )
 
     state.enable_server_load_tracking = args.enable_server_load_tracking
     state.server_load_metrics = 0
