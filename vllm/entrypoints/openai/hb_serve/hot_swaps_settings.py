@@ -1,4 +1,5 @@
 import os
+import logging
 from typing import Any
 import yaml
 
@@ -72,6 +73,17 @@ def check_hot_swaps():
 
 def check_hot_swaps_serve():
     check_hot_swaps()
+    # APScheduler 会在“任务未按时触发(但未抛异常)”时输出 warning：
+    #   Run time of job ... was missed by ...
+    # 这类日志对热更新逻辑通常是非致命噪音；这里将其降噪到 ERROR，
+    # 以避免刷屏。
+    for logger_name in (
+        "apscheduler",
+        "apscheduler.executors.base",
+        "apscheduler.executors.base_py3",
+    ):
+        logging.getLogger(logger_name).setLevel(logging.ERROR)
+
     scheduler = BlockingScheduler()
     scheduler.add_job(check_hot_swaps, 'interval', seconds=10, args=[])
     scheduler.start()
