@@ -605,6 +605,7 @@ class OpenAIServing:
         err_type: str = "BadRequestError",
         status_code: HTTPStatus = HTTPStatus.BAD_REQUEST,
         param: str | None = None,
+        hb_code: str | Any | None = None,
     ) -> ErrorResponse:
         exc: Exception | None = None
 
@@ -645,12 +646,19 @@ class OpenAIServing:
             else:
                 traceback.print_stack()
 
+        hb_code_value: str | None = None
+        if hb_code is not None:
+            # Support passing HBServeStatus enum (with .value) or raw string.
+            hb_code_value = getattr(hb_code, "value", hb_code)
+            hb_code_value = str(hb_code_value)
+
         return ErrorResponse(
             error=ErrorInfo(
                 message=sanitize_message(message),
                 type=err_type,
                 code=status_code.value,
                 param=param,
+                hb_code=hb_code_value,
             )
         )
 
@@ -660,6 +668,7 @@ class OpenAIServing:
         err_type: str = "BadRequestError",
         status_code: HTTPStatus = HTTPStatus.BAD_REQUEST,
         param: str | None = None,
+        hb_code: str | Any | None = None,
     ) -> str:
         json_str = json.dumps(
             self.create_error_response(
@@ -667,6 +676,7 @@ class OpenAIServing:
                 err_type=err_type,
                 status_code=status_code,
                 param=param,
+                hb_code=hb_code,
             ).model_dump()
         )
         return json_str

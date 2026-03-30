@@ -60,6 +60,9 @@ class ErrorInfo(OpenAIBaseModel):
     type: str
     param: str | None = None
     code: int
+    # hb-serve custom error code, e.g. "hb-serve.0080" for HBServeStatus.
+    # Used by hb_serve_metrics to categorize failures.
+    hb_code: str | None = None
 
 
 class ErrorResponse(OpenAIBaseModel):
