@@ -2,6 +2,7 @@
 # SPDX-FileCopyrightText: Copyright contributors to the vLLM project
 
 import asyncio
+import logging
 import json
 import time
 from collections.abc import AsyncGenerator, AsyncIterator
@@ -34,7 +35,18 @@ from vllm.entrypoints.openai.hb_serve.logger import (
 )
 from vllm.entrypoints.openai.hb_serve.request_logger.logger import (
     save_request_logs_to_minio,
+    save_response_logs_to_minio,
 )
+from vllm.entrypoints.openai.hb_serve.request_logger.config import (
+    MinioObjectTags,
+)
+class HBServeError(Exception):
+    """Streaming error that carries a hb_code for hb_serve_metrics."""
+
+    def __init__(self, message: str, hb_code: Any):
+        super().__init__(message)
+        self.hb_code = hb_code
+
 from vllm.entrypoints.openai.chat_completion.protocol import (
     ChatCompletionLogProb,
     ChatCompletionLogProbs,
@@ -345,7 +357,10 @@ class OpenAIServingChat(OpenAIServing):
         if order not in PRIORITY_DICT.keys():
             hb_serve_status = const.HBServeStatus.BAD_HEADER
             msg = f"ORDER should be in ['exclusive', 'priority', 'routine'], but got '{order}'."
-            return self.create_error_response(msg)
+            return self.create_error_response(
+                msg,
+                hb_code=hb_serve_status,
+            )
         
         # Set request priority based on order
         # Priority mapping: exclusive=0, priority=1, routine=2
@@ -398,8 +413,8 @@ class OpenAIServingChat(OpenAIServing):
                 extra=extra_dict
             )
         
-        # Upload request logs to MinIO if enabled
-        if get_global_swaps("MINIO_ENABLE_LOG") == "true":
+        # Upload request logs to MinIO if enabled (or in debug mode)
+        if get_global_swaps("MINIO_ENABLE_LOG") == "true" or is_debug_from_request:
             save_request_logs_to_minio(raw_request, request.model_dump(), extra_dict)
 
         request_metadata = RequestResponseMetadata(request_id=request_id)
@@ -511,6 +526,8 @@ class OpenAIServingChat(OpenAIServing):
                 tokenizer,
                 request_metadata,
                 reasoning_parser,
+                raw_request=raw_request,
+                extra=extra_dict,
             )
 
         try:
@@ -523,6 +540,8 @@ class OpenAIServingChat(OpenAIServing):
                 tokenizer,
                 request_metadata,
                 reasoning_parser,
+                raw_request=raw_request,
+                extra=extra_dict,
             )
         except GenerationError as e:
             return self._convert_generation_error_to_response(e)
@@ -683,6 +702,8 @@ class OpenAIServingChat(OpenAIServing):
         tokenizer: TokenizerLike,
         request_metadata: RequestResponseMetadata,
         reasoning_parser: ReasoningParser | None = None,
+        raw_request: Request | None = None,
+        extra: dict[str, Any] | None = None,
     ) -> AsyncGenerator[str, None]:
         created_time = int(time.time())
         chunk_object_type: Final = "chat.completion.chunk"
@@ -810,7 +831,7 @@ class OpenAIServingChat(OpenAIServing):
                                 total_tokens=num_prompt_tokens,
                             )
 
-                        data = chunk.model_dump_json(exclude_unset=True)
+                        data = chunk.model_dump_json(exclude_unset=False)
                         yield f"data: {data}\n\n"
 
                     # Send response to echo the input portion of the
@@ -846,7 +867,7 @@ class OpenAIServingChat(OpenAIServing):
                                         total_tokens=num_prompt_tokens,
                                     )
 
-                                data = chunk.model_dump_json(exclude_unset=True)
+                                data = chunk.model_dump_json(exclude_unset=False)
                                 yield f"data: {data}\n\n"
                     first_iteration = False
 
@@ -1262,7 +1283,9 @@ class OpenAIServingChat(OpenAIServing):
                         # Check for abort finish reason (e.g., structured output compilation failure)
                         if output.finish_reason == "abort":
                             error_msg = output.stop_reason or "Request aborted"
-                            raise ValueError(error_msg)
+                            raise HBServeError(
+                                error_msg, hb_code=const.HBServeStatus.BAD_REQUEST
+                            )
                         
                         # check for error finish reason and abort streaming
                         # finish_reason='error' indicates a retryable error
@@ -1382,7 +1405,7 @@ class OpenAIServingChat(OpenAIServing):
                             total_tokens=num_prompt_tokens + completion_tokens,
                         )
 
-                    data = chunk.model_dump_json(exclude_unset=True)
+                    data = chunk.model_dump_json(exclude_unset=False)
                     yield f"data: {data}\n\n"
 
             # once the final token is handled, if stream_options.include_usage
@@ -1408,7 +1431,7 @@ class OpenAIServingChat(OpenAIServing):
                     usage=final_usage,
                 )
                 final_usage_data = final_usage_chunk.model_dump_json(
-                    exclude_unset=True, exclude_none=True
+                    exclude_unset=False, exclude_none=False
                 )
                 yield f"data: {final_usage_data}\n\n"
 
@@ -1439,10 +1462,16 @@ class OpenAIServingChat(OpenAIServing):
                     )
 
         except GenerationError as e:
-            yield f"data: {self._convert_generation_error_to_streaming_response(e)}\n\n"
+            data = self._convert_generation_error_to_streaming_response(e)
+            yield f"data: {data}\n\n"
         except Exception as e:
             logger.exception("Error in chat completion stream generator.")
-            data = self.create_streaming_error_response(e)
+            if isinstance(e, HBServeError):
+                data = self.create_streaming_error_response(
+                    e, hb_code=e.hb_code
+                )
+            else:
+                data = self.create_streaming_error_response(e)
             yield f"data: {data}\n\n"
         # Send the final done message after all response.n are finished
         yield "data: [DONE]\n\n"
@@ -1457,6 +1486,8 @@ class OpenAIServingChat(OpenAIServing):
         tokenizer: TokenizerLike,
         request_metadata: RequestResponseMetadata,
         reasoning_parser: ReasoningParser | None = None,
+        raw_request: Request | None = None,
+        extra: dict[str, Any] | None = None,
     ) -> ErrorResponse | ChatCompletionResponse:
         from vllm.tokenizers.mistral import MistralTokenizer
 
@@ -1484,7 +1515,9 @@ class OpenAIServingChat(OpenAIServing):
             # Check for abort finish reason (e.g., structured output compilation failure)
             if output.finish_reason == "abort":
                 error_msg = output.stop_reason or "Request aborted"
-                return self.create_error_response(error_msg)
+                return self.create_error_response(
+                    error_msg, hb_code=const.HBServeStatus.BAD_REQUEST
+                )
             
             # check for error finish reason and raise GenerationError
             # finish_reason='error' indicates a retryable request-level internal error
@@ -1851,6 +1884,44 @@ class OpenAIServingChat(OpenAIServing):
                         is_streaming=False,
                         delta=False,
                     )
+        # MinIO upload - align with v0.10.1 customization
+        extra = extra or {}
+        is_debug_from_request = extra.get("is_debug_from_request", False)
+        response_dict = response.model_dump()
+
+        if is_debug_from_request:
+            logger.info(
+                f"success {request_id}, {response},Statu.SUCCESS",
+                extra=extra,
+            )
+            save_response_logs_to_minio(response_dict, extra_dict=extra)
+        else:
+            if logger.getEffectiveLevel() != logging.DEBUG:
+                logger.info(
+                    f"success {request_id}, {response.usage},Statu.SUCCESS",
+                    extra=extra,
+                )
+            else:
+                logger.debug(
+                    f"success {request_id}, {response},Statu.SUCCESS",
+                    extra=extra,
+                )
+            if get_global_swaps("MINIO_ENABLE_LOG") == "true":
+                save_response_logs_to_minio(response_dict, extra_dict=extra)
+
+        # If finish_reason == length, also tag upload request/response logs
+        response_dumped = response.model_dump()
+        if (
+            response_dumped.get("choices")
+            and response_dumped["choices"][0].get("finish_reason") == "length"
+            and get_global_swaps("MINIO_ENABLE_LOG") == "true"
+        ):
+            tags = MinioObjectTags.exceed_max_tokens.value
+            if raw_request is not None:
+                save_request_logs_to_minio(
+                    raw_request, request.model_dump(), extra, tags
+                )
+            save_response_logs_to_minio(response_dumped, extra, tags)
 
         return response
 
