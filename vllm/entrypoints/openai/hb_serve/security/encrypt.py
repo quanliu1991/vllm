@@ -17,6 +17,9 @@ from vllm.entrypoints.openai.hb_serve.security.model_security import model_encrp
 from vllm.entrypoints.openai.hb_serve.logger import SingleLogger, ContextualLoggerAdapter, enum_to_json, LogType, Statu
 # from vllm.plugins.lora_resolvers.s3_adapter_resolver import register_s3_adapter_resolver
 from vllm.transformers_utils.runai_utils import is_runai_obj_uri
+from vllm.plugins.lora_resolvers.s3_adapter_resolver import (
+    register_s3_adapter_resolver,
+)
 
 mindie_config_path = os.getenv("MINDIE_CONFIG_PATH","/usr/local/Ascend/mindie/latest/mindie-service/conf")
 logger = SingleLogger.get_logger()
@@ -108,7 +111,7 @@ class Encrypt:
 
     def is_lora_encryption(self):
         if is_s3(self.lora_models):
-            # register_s3_adapter_resolver()
+            register_s3_adapter_resolver()
             return
         if os.path.isdir(self.lora_models):
             return False
