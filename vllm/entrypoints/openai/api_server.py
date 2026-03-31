@@ -20,7 +20,6 @@ import uvloop
 from fastapi import FastAPI, HTTPException, Query, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
-# from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
 from prometheus_client import make_asgi_app
 from prometheus_fastapi_instrumentator import Instrumentator
 from starlette.datastructures import State
@@ -293,10 +292,19 @@ def build_app(
         register_pooling_api_routers(app, supported_tasks)
 
     app.root_path = args.root_path
-    # FastAPIInstrumentor.instrument_app(app,
-    #                                    excluded_urls="/health,/metrics",
-    #                                    exclude_spans=["send", "receive"]
-    #                                    )
+    try:
+        from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
+
+        FastAPIInstrumentor.instrument_app(
+            app,
+            excluded_urls="/health,/metrics",
+            exclude_spans=["send", "receive"],
+        )
+    except ImportError:
+        logger.debug(
+            "opentelemetry-instrumentation-fastapi not installed; "
+            "skipping FastAPI HTTP tracing"
+        )
     mount_metrics(app)
     app.add_middleware(
         CORSMiddleware,
@@ -715,6 +723,8 @@ if __name__ == "__main__":
 
     if is_runai_obj_uri(args.model) or is_s3(args.lora_models if args.lora_models else ""):
         args.load_format = "runai_streamer"
+
+    if is_runai_obj_uri(args.model) or is_s3(args.lora_models if args.lora_models else ""):
         os.environ["AWS_REGION"] = "us-east-1"
         os.environ["RUNAI_STREAMER_S3_USE_VIRTUAL_ADDRESSING"] = "0"
         os.environ["RUNAI_STREAMER_NO_BOTO3_SESSION"] = "16"
@@ -723,7 +733,7 @@ if __name__ == "__main__":
         os.environ["AWS_SECRET_ACCESS_KEY"] = os.environ["MINIO_SECRET_KEY"]
         os.environ["AWS_ENDPOINT_URL"] = "http://" + os.environ["MINIO_ENDPOINT"]
 
-        if is_s3(args.lora_models):
+        if is_s3(args.lora_models if args.lora_models else ""):
             os.environ["VLLM_ALLOW_RUNTIME_LORA_UPDATING"] = "true"
             os.environ["VLLM_PLUGINS"] = '["s3_adapter_resolver"]'
             os.environ["VLLM_LORA_RESOLVER_CACHE_DIR"] = "/workspace/adapters"

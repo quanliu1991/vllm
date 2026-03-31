@@ -11,6 +11,10 @@ import uuid
 from collections.abc import Callable
 from typing import TYPE_CHECKING, Any, Literal
 
+# hb-serve OTLP defaults (0011); setdefault preserves explicit env overrides
+os.environ.setdefault("OTEL_EXPORTER_OTLP_TRACES_INSECURE", "true")
+os.environ.setdefault("OTEL_SERVICE_NAME", "hb-serve")
+
 if TYPE_CHECKING:
     VLLM_HOST_IP: str = ""
     VLLM_PORT: int | None = None
