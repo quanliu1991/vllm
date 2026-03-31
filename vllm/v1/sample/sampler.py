@@ -292,7 +292,6 @@ class Sampler(nn.Module):
         if bad_words_token_ids:
             apply_bad_words(logits, bad_words_token_ids, output_token_ids)
 
-        # todo 优化 如果思考模式则走该逻辑
         logits = apply_reasoning_stop_length(logits,
                                              sampling_metadata.output_token_ids,
                                              sampling_metadata.max_thinking_tokens)

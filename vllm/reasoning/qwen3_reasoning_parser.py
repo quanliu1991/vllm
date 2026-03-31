@@ -2,6 +2,7 @@
 # SPDX-FileCopyrightText: Copyright contributors to the vLLM project
 
 from collections.abc import Sequence
+from typing import cast
 
 from vllm.entrypoints.openai.chat_completion.protocol import (
     ChatCompletionRequest,
@@ -44,6 +45,20 @@ class Qwen3ReasoningParser(BaseThinkingReasoningParser):
         # Avoid runtime tokenizer encode/decode in hot path. We only need to
         # detect whether the token immediately after </think> is "\n\n".
         self._double_newline_token_id = self.vocab.get("\n\n")
+
+    def is_reasoning_end(self, input_ids: Sequence[int]) -> bool:
+        """True when </think> is immediately followed by the \\n\\n token (0009)."""
+        ids = list(input_ids)
+        if self.end_token_id not in ids:
+            return False
+        idx = ids.index(self.end_token_id)
+        if (
+            len(ids) > idx + 1
+            and self._double_newline_token_id is not None
+            and ids[idx + 1] == self._double_newline_token_id
+        ):
+            return True
+        return False
 
     @property
     def start_token(self) -> str:
@@ -145,12 +160,20 @@ class Qwen3ReasoningParser(BaseThinkingReasoningParser):
         """
 
         think_tag_suffix = self.get_reasoning_end_suffix(list(current_token_ids))
-        # Strip <think> from delta if present (old template / edge case
-        # where the model generates <think> itself).
+        prev_ids = list(previous_token_ids)
+        if (
+            self.start_token_id in prev_ids
+            and prev_ids
+            and prev_ids[-1] == self.start_token_id
+        ):
+            delta_text = delta_text.removeprefix("\n")
+
+        # Strip think-start from delta if present (old template / edge case).
         if self.start_token_id in delta_token_ids:
             start_idx = delta_text.find(self.start_token)
             if start_idx >= 0:
                 delta_text = delta_text[start_idx + len(self.start_token) :]
+            delta_text = delta_text.removeprefix("\n")
 
         if self.end_token_id in delta_token_ids:
             # End token in this delta: split reasoning from content.
@@ -158,6 +181,8 @@ class Qwen3ReasoningParser(BaseThinkingReasoningParser):
             if end_index >= 0:
                 reasoning = delta_text[:end_index]
                 content = delta_text[end_index + len(self.end_token) :]
+                reasoning = reasoning.removeprefix("\n")
+                content = content.removeprefix("\n\n")
                 if not reasoning and not content:
                     return None
                 return DeltaMessage(
@@ -174,8 +199,14 @@ class Qwen3ReasoningParser(BaseThinkingReasoningParser):
             return None
         elif self.end_token_id in previous_token_ids:
             # End token already passed: everything is content now.
-            delta_text = delta_text.removeprefix(think_tag_suffix)
+            if prev_ids and prev_ids[-1] == self.end_token_id:
+                delta_text = delta_text.removeprefix("\n\n")
+            else:
+                delta_text = delta_text.removeprefix(think_tag_suffix)
             return DeltaMessage(content=delta_text)
         else:
             # No end token yet: still in reasoning phase.
-            return DeltaMessage(reasoning=delta_text, reasoning_content=delta_text)
+            return DeltaMessage(
+                reasoning=cast(str, delta_text),
+                reasoning_content=cast(str, delta_text),
+            )

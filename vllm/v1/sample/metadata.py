@@ -28,7 +28,7 @@ class SamplingMetadata:
     presence_penalties: torch.Tensor
     repetition_penalties: torch.Tensor
 
-    output_token_ids: list[list[int]]## todo bug output_token_ids没有插入生成的token，采样时会导致避免吗重复的参数和思考停止的参数失效。
+    output_token_ids: list[list[int]]
 
     # `allowed_token_ids_mask` is a 2D bool tensor of shape (max batch size,
     # vocab size).
@@ -39,7 +39,7 @@ class SamplingMetadata:
 
     # Loaded logits processors
     logitsprocs: LogitsProcessors
-    max_thinking_tokens: int = 4096  # todo 该字段暂未生效，由于output_token_ids没有数据
+    max_thinking_tokens: int = 4096
 
     # Speculative token ids
     spec_token_ids: list[list[int]] | None = None

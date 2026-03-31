@@ -1,10 +1,12 @@
 # SPDX-License-Identifier: Apache-2.0
 # SPDX-FileCopyrightText: Copyright contributors to the vLLM project
 
-import torch
 import os
-OPEN_THINK_TAG = 248068 #int(os.getenv("OPEN_THINK_TAG", 151667))
-CLOSE_THINK_TAG = 248069 #int(os.getenv("CLOSE_THINK_TAG", 151668))
+
+import torch
+
+OPEN_THINK_TAG = int(os.getenv("OPEN_THINK_TAG", "151667"))
+CLOSE_THINK_TAG = int(os.getenv("CLOSE_THINK_TAG", "151668"))
 
 def apply_reasoning_stop_length(
     logits: torch.Tensor,
