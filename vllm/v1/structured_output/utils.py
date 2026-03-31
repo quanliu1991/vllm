@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import importlib.metadata
 import os
+import pickle
 import tempfile
 from typing import TYPE_CHECKING
 
@@ -87,14 +88,20 @@ def apply_grammar_bitmask(
         dtype=grammar_bitmask.dtype,
     )
     cumulative_index = 0
-    for req_id in grammar_output.structured_output_request_ids:
-        num_spec_tokens = len(spec_tokens.get(req_id, ()))
-        if (logit_idx := struct_out_req_batch_indices.get(req_id)) is not None:
-            for i in range(1 + num_spec_tokens):
-                bitmask_index = logit_idx + i
-                sorted_bitmask[bitmask_index] = grammar_bitmask[cumulative_index + i]
-                out_indices.append(bitmask_index)
-        cumulative_index += 1 + num_spec_tokens
+    try:
+        for req_id in grammar_output.structured_output_request_ids:
+            num_spec_tokens = len(spec_tokens.get(req_id, ()))
+            if (logit_idx := struct_out_req_batch_indices.get(req_id)) is not None:
+                for i in range(1 + num_spec_tokens):
+                    bitmask_index = logit_idx + i
+                    sorted_bitmask[bitmask_index] = grammar_bitmask[cumulative_index + i]
+                    out_indices.append(bitmask_index)
+            cumulative_index += 1 + num_spec_tokens
+    except Exception as e:
+        save_debug_data(
+            struct_out_req_batch_indices, scheduler_output, grammar_bitmask
+        )
+        logger.error("grammar bitmask reorder failed: %s", e, exc_info=True)
 
     # Copy async to device as tensor.
     grammar_bitmask = torch.from_numpy(sorted_bitmask).to(
@@ -439,3 +446,21 @@ def choice_as_grammar(choice: list[str]) -> str:
     escaped_choices = (escape_ebnf_string(c) for c in choice)
     grammar = "root ::= " + " | ".join(f'"{c}"' for c in escaped_choices)
     return grammar
+
+
+def save_debug_data(
+    struct_out_req_batch_indices: dict[str, int],
+    scheduler_output: SchedulerOutput,
+    grammar_bitmask: np.ndarray,
+    path: str = "/workspace/gd_debug.pkl",
+) -> None:
+    """Dump guided-decoding bitmask state for post-mortem debugging (0012)."""
+    data = {
+        "struct_out_req_batch_indices": struct_out_req_batch_indices,
+        "scheduler_output": scheduler_output,
+        "grammar_bitmask": grammar_bitmask,
+    }
+    with open(path, "wb") as f:
+        pickle.dump(data, f, protocol=pickle.HIGHEST_PROTOCOL)
+    print(f"[debug] 已保存到 {path}")
+

@@ -4,15 +4,20 @@
 from __future__ import annotations
 
 import ast
+import hashlib
 import importlib
 import json
 import sys
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
+import interegular
 import torch
 from regex import escape as regex_escape
 
+from vllm.entrypoints.openai.hb_serve.request_logger.logger import (
+    save_guided_logs_to_minio,
+)
 from vllm.sampling_params import SamplingParams
 from vllm.utils.import_utils import LazyLoader
 from vllm.v1.structured_output.backend_types import (
@@ -60,8 +65,13 @@ class OutlinesBackend(StructuredOutputBackend):
         if cache_key in self.cache:
             return self.cache[cache_key]
 
+        # 通过interegular判断是否进入无限循环，默认设置上限5000个状态。
+        interegular.parse_pattern(regex_string).to_fsm()
         index = oc.Index(regex_string, vocabulary.inner)
         self.cache[cache_key] = index
+
+        regex_hash = hashlib.md5(regex_string.encode()).hexdigest()
+        save_guided_logs_to_minio(regex_string, regex_hash, "regex")
 
         return index
 
@@ -80,16 +90,19 @@ class OutlinesBackend(StructuredOutputBackend):
             raise ValueError(
                 f"Invalid request type for Outlines backend ({request_type!s})"
             )
-        index = self._compile_index(regex, self.vocabulary)
-        max_rollback_tokens = (
-            self.vllm_config.speculative_config.num_speculative_tokens
-            if self.vllm_config.speculative_config is not None
-            else 0
-        )
-        return OutlinesGrammar(
-            vocab_size=self.vocab_size,
-            guide=oc.Guide(index, max_rollback=max_rollback_tokens),
-        )
+        try:
+            index = self._compile_index(regex, self.vocabulary)
+            max_rollback_tokens = (
+                self.vllm_config.speculative_config.num_speculative_tokens
+                if self.vllm_config.speculative_config is not None
+                else 0
+            )
+            return OutlinesGrammar(
+                vocab_size=self.vocab_size,
+                guide=oc.Guide(index, max_rollback=max_rollback_tokens),
+            )
+        except Exception as e:
+            raise ValueError(str(e)) from e
 
     def allocate_token_bitmask(self, max_num_seqs: int) -> torch.Tensor:
         return torch.full(
