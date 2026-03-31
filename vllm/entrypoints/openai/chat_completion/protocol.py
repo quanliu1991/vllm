@@ -54,10 +54,6 @@ _LONG_INFO = torch.iinfo(torch.long)
 class ChatMessage(OpenAIBaseModel):
     role: str
     content: str | None = None
-    refusal: str | None = None
-    annotations: OpenAIAnnotation | None = None
-    audio: OpenAIChatCompletionAudio | None = None
-    function_call: FunctionCall | None = None
     tool_calls: list[ToolCall] = Field(default_factory=list)
 
     # vLLM-specific fields that are not in OpenAI spec
@@ -101,16 +97,11 @@ class ChatCompletionResponse(OpenAIBaseModel):
     created: int = Field(default_factory=lambda: int(time.time()))
     model: str
     choices: list[ChatCompletionResponseChoice]
-    service_tier: Literal["auto", "default", "flex", "scale", "priority"] | None = None
-    system_fingerprint: str | None = None
     usage: UsageInfo
 
     # vLLM-specific fields that are not in OpenAI spec
     prompt_logprobs: list[dict[int, Logprob] | None] | None = None
     prompt_token_ids: list[int] | None = None
-    kv_transfer_params: dict[str, Any] | None = Field(
-        default=None, description="KVTransfer parameters."
-    )
 
 
 class ChatCompletionResponseStreamChoice(OpenAIBaseModel):
@@ -157,11 +148,7 @@ class ChatCompletionRequest(OpenAIBaseModel):
     logit_bias: dict[str, float] | None = None
     logprobs: bool | None = False
     top_logprobs: int | None = 0
-    max_tokens: int | None = Field(
-        default=None,
-        deprecated="max_tokens is deprecated in favor of "
-        "the max_completion_tokens field",
-    )
+    max_tokens: int | None = Field(default=None)
     max_completion_tokens: int | None = None
     n: int | None = 1
     presence_penalty: float | None = 0.0
@@ -340,6 +327,8 @@ class ChatCompletionRequest(OpenAIBaseModel):
     guided_regex: str|None = None
     guided_json: dict|str|None = None
     guided_choice: list[str]|None = None
+    order: str | None = "routine"
+    lora_type: str | None = None
     reasoning: bool|None = False
 
     repetition_detection: RepetitionDetectionParams | None = Field(

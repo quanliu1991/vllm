@@ -2,14 +2,18 @@
 # SPDX-FileCopyrightText: Copyright contributors to the vLLM project
 
 import asyncio
-import logging
 import json
+import logging
+import sys
 import time
 from collections.abc import AsyncGenerator, AsyncIterator
 from collections.abc import Sequence as GenericSequence
 from typing import Any, Final
 
+import interegular
+from async_lru import alru_cache
 import jinja2
+from outlines_core import json_schema
 import partial_json_parser
 import regex as re
 from fastapi import Request
@@ -25,13 +29,15 @@ from vllm.entrypoints.chat_utils import (
 )
 from vllm.entrypoints.logger import RequestLogger
 from vllm.entrypoints.openai.hb_serve import const
-from vllm.entrypoints.openai.hb_serve.const import PRIORITY_DICT
+from vllm.entrypoints.openai.hb_serve.const import HBServeStatus, PRIORITY_DICT
 from vllm.entrypoints.openai.hb_serve.hot_swaps_settings import get_global_swaps
 from vllm.entrypoints.openai.hb_serve.logger import (
+    ContextualLoggerAdapter,
     request_parse,
     request_logs,
-    to_serializable,
+    SingleLogger,
     Statu,
+    to_serializable,
 )
 from vllm.entrypoints.openai.hb_serve.request_logger.logger import (
     save_request_logs_to_minio,
@@ -92,7 +98,6 @@ from vllm.entrypoints.openai.parser.harmony_utils import (
 from vllm.entrypoints.openai.utils import maybe_filter_parallel_tool_calls
 from vllm.entrypoints.utils import get_max_tokens, should_include_usage
 from vllm.inputs.data import ProcessorInputs, TokensPrompt
-from vllm.logger import init_logger
 from vllm.logprobs import Logprob
 from vllm.outputs import CompletionOutput, RequestOutput
 from vllm.parser import ParserManager
@@ -106,7 +111,10 @@ from vllm.utils.collection_utils import as_list
 from vllm.utils.mistral import is_mistral_tokenizer
 from vllm.utils.mistral import mt as _mt
 
-logger = init_logger(__name__)
+_logger = SingleLogger.get_logger()
+logger = ContextualLoggerAdapter(
+    _logger, {"tid": None, "rid": None, "category": None, "ext": None}
+)
 
 
 class OpenAIServingChat(OpenAIServing):
@@ -240,6 +248,8 @@ class OpenAIServingChat(OpenAIServing):
     async def render_chat_request(
         self,
         request: ChatCompletionRequest,
+        raw_request: Request | None = None,
+        extra_dict: dict[str, Any] | None = None,
     ) -> tuple[list[ConversationMessage], list[ProcessorInputs]] | ErrorResponse:
         """
         render chat request by validating and preprocessing inputs.
@@ -248,16 +258,24 @@ class OpenAIServingChat(OpenAIServing):
             A tuple of (conversation, engine_prompts) on success,
             or an ErrorResponse on failure.
         """
+        extra = extra_dict if extra_dict is not None else request_parse(request, raw_request)[0]
+
         error_check_ret = await self._check_model(request)
         if error_check_ret is not None:
-            logger.error("Error with model %s", error_check_ret)
             return error_check_ret
 
-        # If the engine is dead, raise the engine's DEAD_ERROR.
-        # This is required for the streaming case, where we return a
-        # success status before we actually start generating text :).
+        # If the engine is dead, return an error (HBServe uses hb_code for metrics).
         if self.engine_client.errored:
-            raise self.engine_client.dead_error
+            return self.create_error_response(
+                message=(
+                    f"vllm engine error: {self.engine_client.dead_error!s} "
+                    "(system may restart)"
+                ),
+                err_type="LLMEngineError",
+                hb_code=HBServeStatus.BAD_SERVER,
+                extra=extra,
+                model_name=request.model,
+            )
 
         try:
             tokenizer = self.renderer.tokenizer
@@ -289,14 +307,33 @@ class OpenAIServingChat(OpenAIServing):
                     # --enable-auto-tool-choice and --tool-call-parser
                     return self.create_error_response(
                         '"auto" tool choice requires '
-                        "--enable-auto-tool-choice and --tool-call-parser to be set"
+                        "--enable-auto-tool-choice and --tool-call-parser to be set",
+                        hb_code=const.HBServeStatus.BAD_INPUT_PARAMS,
+                        extra=extra,
                     )
                 elif request.tool_choice != "auto":
                     # "required" or named tool requires tool parser
                     return self.create_error_response(
                         f'tool_choice="{request.tool_choice}" requires '
-                        "--tool-call-parser to be set"
+                        "--tool-call-parser to be set",
+                        hb_code=const.HBServeStatus.BAD_INPUT_PARAMS,
+                        extra=extra,
                     )
+
+            if (
+                request.tool_choice == "auto"
+                and (
+                    request.guided_choice
+                    or request.guided_json
+                    or request.guided_regex
+                )
+            ):
+                return self.create_error_response(
+                    "tool call and guided decoding is not work together, "
+                    "please set guided is none.",
+                    hb_code=const.HBServeStatus.BAD_INPUT_PARAMS,
+                    extra=extra,
+                )
 
             if request.tools is None or (
                 request.tool_choice == "none"
@@ -305,6 +342,26 @@ class OpenAIServingChat(OpenAIServing):
                 tool_dicts = None
             else:
                 tool_dicts = [tool.model_dump() for tool in request.tools]
+
+            guided_choice = request.guided_choice
+            if guided_choice is not None:
+                add_system_choice = (
+                    "【其他】必须从("
+                    + "|".join(choice for choice in guided_choice)
+                    + ")中选择最佳答案,只回答选项中的内容。"
+                )
+
+                has_system = False
+                for msg in request.messages:
+                    if msg.get("role") == "system":
+                        msg["content"] = (msg.get("content") or "") + add_system_choice
+                        has_system = True
+                        break
+
+                if not has_system:
+                    request.messages.insert(
+                        0, {"role": "system", "content": add_system_choice}
+                    )
 
             if not self.use_harmony:
                 # Common case.
@@ -332,8 +389,11 @@ class OpenAIServingChat(OpenAIServing):
                     request, should_include_tools
                 )
         except (ValueError, TypeError, RuntimeError, jinja2.TemplateError) as e:
-            logger.exception("Error in preprocessing prompt inputs")
-            return self.create_error_response(e)
+            return self.create_error_response(
+                f"{e} {e.__cause__}",
+                hb_code=const.HBServeStatus.BAD_INPUT_PARAMS,
+                extra=extra,
+            )
 
         return conversation, engine_prompts
 
@@ -349,29 +409,53 @@ class OpenAIServingChat(OpenAIServing):
         for the API specification. This API mimics the OpenAI
         Chat Completion API.
         """
+        if raw_request is not None:
+            hb_serve_metrics = getattr(raw_request.app.state, "hb_serve_metrics", None)
+            if hb_serve_metrics is not None:
+                hb_serve_metrics.log(
+                    labels=dict(
+                        model_name=request.model or "",
+                        reasoning=str(getattr(request, "reasoning", False)),
+                    )
+                )
+
         # Parse request headers for priority and other metadata
         extra_dict, query = request_parse(request, raw_request)
+
+        # Defaults aligned with v0.10.1 HBServe
+        if request.max_tokens is None:
+            request.max_tokens = 1024
+        request.max_completion_tokens = request.max_tokens
+
+        reasoning_flag = getattr(request, "reasoning", False) or False
+        if not reasoning_flag:
+            request.chat_template_kwargs = {"enable_thinking": False}
+
         order = extra_dict.get("order", "routine")
-        
+
         # Validate order parameter
         if order not in PRIORITY_DICT.keys():
             hb_serve_status = const.HBServeStatus.BAD_HEADER
-            msg = f"ORDER should be in ['exclusive', 'priority', 'routine'], but got '{order}'."
+            msg = f"ORDER should be in ['exclusive', 'priority', 'routine'], but get '{order}'."
             return self.create_error_response(
                 msg,
                 hb_code=hb_serve_status,
+                extra=extra_dict,
+                model_name=request.model,
             )
-        
+
         # Set request priority based on order
         # Priority mapping: exclusive=0, priority=1, routine=2
         use_priority = get_global_swaps("USE_PRIORITY") == "true"
         request.priority = PRIORITY_DICT.get(order, 2) if use_priority else 2
-        
+
         # Streaming response
         tokenizer = self.renderer.tokenizer
         assert tokenizer is not None
         reasoning_parser: ReasoningParser | None = None
-        result = await self.render_chat_request(request)
+        result = await self.render_chat_request(
+            request, raw_request, extra_dict=extra_dict
+        )
         try:
             if self.reasoning_parser_cls:
                 # Pass the same chat template kwargs as used in tokenization
@@ -392,30 +476,54 @@ class OpenAIServingChat(OpenAIServing):
 
         conversation, engine_prompts = result
 
-        request_id = (
-            f"chatcmpl-{self._base_request_id(raw_request, request.request_id)}"
-        )
-        
-        # Log received request
+        request_id = request.request_id
+
+        # Log received request (v0.10.1 HBServe); failures are non-fatal (0013).
         extra_dict.update({"rid": request_id})
-        is_debug_from_request = extra_dict.get("is_debug_from_request", False)
+        is_debug_from_request = bool(extra_dict.get("is_debug_from_request", False))
         request_json = to_serializable(request)
-        
-        # Log based on debug level
-        if is_debug_from_request or logger.getEffectiveLevel() == 10:  # logging.DEBUG
-            logger.info(
-                self.received_log_temp("Chat", request_logs(request_json, log_messages=True), Statu.SUCCESS.value),
-                extra=extra_dict
-            )
-        else:
-            logger.info(
-                self.received_log_temp("Chat", request_logs(request_json), Statu.SUCCESS.value),
-                extra=extra_dict
-            )
-        
-        # Upload request logs to MinIO if enabled (or in debug mode)
-        if get_global_swaps("MINIO_ENABLE_LOG") == "true" or is_debug_from_request:
-            save_request_logs_to_minio(raw_request, request.model_dump(), extra_dict)
+        try:
+            if is_debug_from_request:
+                logger.info(
+                    self.received_log_temp(
+                        "Chat",
+                        request_logs(request_json, log_messages=True),
+                        Statu.SUCCESS.value,
+                    ),
+                    extra=extra_dict,
+                )
+                if raw_request is not None:
+                    save_request_logs_to_minio(
+                        raw_request, request.model_dump(), extra_dict
+                    )
+            else:
+                if logger.getEffectiveLevel() != logging.DEBUG:
+                    logger.info(
+                        self.received_log_temp(
+                            "Chat",
+                            request_logs(request_json),
+                            Statu.SUCCESS.value,
+                        ),
+                        extra=extra_dict,
+                    )
+                else:
+                    logger.debug(
+                        self.received_log_temp(
+                            "Chat",
+                            request_logs(request_json, log_messages=True),
+                            Statu.SUCCESS.value,
+                        ),
+                        extra=extra_dict,
+                    )
+                if (
+                    get_global_swaps("MINIO_ENABLE_LOG") == "true"
+                    and raw_request is not None
+                ):
+                    save_request_logs_to_minio(
+                        raw_request, request.model_dump(), extra_dict
+                    )
+        except Exception as e:
+            logger.error("%s", e)
 
         request_metadata = RequestResponseMetadata(request_id=request_id)
         if raw_request:
@@ -470,12 +578,13 @@ class OpenAIServingChat(OpenAIServing):
                         self.default_sampling_params,
                     )
 
-                self._log_inputs(
-                    sub_request_id,
-                    engine_prompt,
-                    params=sampling_params,
-                    lora_request=lora_request,
-                )
+                if logger.getEffectiveLevel() == logging.DEBUG:
+                    self._log_inputs(
+                        sub_request_id,
+                        engine_prompt,
+                        params=sampling_params,
+                        lora_request=lora_request,
+                    )
 
                 trace_headers = (
                     None
@@ -510,8 +619,27 @@ class OpenAIServingChat(OpenAIServing):
                     )
 
                 generators.append(generator)
+                if request.guided_json:
+                    grammar_spec = (
+                        json.dumps(request.guided_json)
+                        if isinstance(request.guided_json, dict)
+                        else request.guided_json
+                    )
+                    await check_json_state_length(grammar_spec)
+                elif request.guided_regex:
+                    await check_regex_state_length(request.guided_regex)
         except ValueError as e:
-            return self.create_error_response(e)
+            return self.create_error_response(
+                str(e),
+                hb_code=const.HBServeStatus.BAD_INPUT_PARAMS,
+                extra=extra_dict,
+            )
+        except Exception as e:
+            return self.create_error_response(
+                str(e),
+                hb_code=const.HBServeStatus.BAD_INPUT_PARAMS,
+                extra=extra_dict,
+            )
 
         assert len(generators) == 1
         (result_generator,) = generators
@@ -546,7 +674,17 @@ class OpenAIServingChat(OpenAIServing):
         except GenerationError as e:
             return self._convert_generation_error_to_response(e)
         except ValueError as e:
-            return self.create_error_response(e)
+            return self.create_error_response(
+                str(e),
+                hb_code=const.HBServeStatus.BAD_REQUEST,
+                extra=extra_dict,
+            )
+        except Exception as e:
+            return self.create_error_response(
+                str(e),
+                hb_code=const.HBServeStatus.BAD_REQUEST,
+                extra=extra_dict,
+            )
 
     def get_chat_request_role(self, request: ChatCompletionRequest) -> str:
         if request.add_generation_prompt:
@@ -705,9 +843,11 @@ class OpenAIServingChat(OpenAIServing):
         raw_request: Request | None = None,
         extra: dict[str, Any] | None = None,
     ) -> AsyncGenerator[str, None]:
+        extra = extra or {}
         created_time = int(time.time())
         chunk_object_type: Final = "chat.completion.chunk"
         first_iteration = True
+        last_chunk_json = ""
 
         # Send response for each token for each request.n (index)
         num_choices = 1 if request.n is None else request.n
@@ -770,7 +910,7 @@ class OpenAIServingChat(OpenAIServing):
                 tool_parsers = [None] * num_choices
         except Exception as e:
             logger.exception("Error in tool parser creation.")
-            data = self.create_streaming_error_response(e)
+            data = self.create_streaming_error_response(str(e), extra=extra)
             yield f"data: {data}\n\n"
             yield "data: [DONE]\n\n"
             return
@@ -832,6 +972,7 @@ class OpenAIServingChat(OpenAIServing):
                             )
 
                         data = chunk.model_dump_json(exclude_unset=False)
+                        last_chunk_json = data
                         yield f"data: {data}\n\n"
 
                     # Send response to echo the input portion of the
@@ -868,11 +1009,13 @@ class OpenAIServingChat(OpenAIServing):
                                     )
 
                                 data = chunk.model_dump_json(exclude_unset=False)
+                                last_chunk_json = data
                                 yield f"data: {data}\n\n"
                     first_iteration = False
 
                 for output in res.outputs:
                     i = output.index
+                    final_usage: UsageInfo | None = None
                     tool_parser = tool_parsers[i]
 
                     if (
@@ -1280,13 +1423,10 @@ class OpenAIServingChat(OpenAIServing):
 
                     # if the model is finished generating
                     else:
-                        # Check for abort finish reason (e.g., structured output compilation failure)
+                        # Abort (e.g. structured-output compilation failure): surface stop_reason
                         if output.finish_reason == "abort":
-                            error_msg = output.stop_reason or "Request aborted"
-                            raise HBServeError(
-                                error_msg, hb_code=const.HBServeStatus.BAD_REQUEST
-                            )
-                        
+                            raise ValueError(output.stop_reason)
+
                         # check for error finish reason and abort streaming
                         # finish_reason='error' indicates a retryable error
                         self._raise_if_error(output.finish_reason, request_id)
@@ -1387,6 +1527,18 @@ class OpenAIServingChat(OpenAIServing):
 
                         finish_reason_sent[i] = True
 
+                        if include_usage:
+                            completion_tokens = sum(previous_num_tokens)
+                            final_usage = UsageInfo(
+                                prompt_tokens=num_prompt_tokens,
+                                completion_tokens=completion_tokens,
+                                total_tokens=num_prompt_tokens + completion_tokens,
+                            )
+                            if num_cached_tokens:
+                                final_usage.prompt_tokens_details = PromptTokenUsageInfo(
+                                    cached_tokens=num_cached_tokens
+                                )
+
                     choice_data = maybe_filter_parallel_tool_calls(choice_data, request)
                     chunk = ChatCompletionStreamResponse(
                         id=request_id,
@@ -1405,35 +1557,12 @@ class OpenAIServingChat(OpenAIServing):
                             total_tokens=num_prompt_tokens + completion_tokens,
                         )
 
+                    if final_usage:
+                        chunk.usage = final_usage
+
                     data = chunk.model_dump_json(exclude_unset=False)
+                    last_chunk_json = data
                     yield f"data: {data}\n\n"
-
-            # once the final token is handled, if stream_options.include_usage
-            # is sent, send the usage
-            if include_usage:
-                completion_tokens = sum(previous_num_tokens)
-                final_usage = UsageInfo(
-                    prompt_tokens=num_prompt_tokens,
-                    completion_tokens=completion_tokens,
-                    total_tokens=num_prompt_tokens + completion_tokens,
-                )
-                if self.enable_prompt_tokens_details and num_cached_tokens:
-                    final_usage.prompt_tokens_details = PromptTokenUsageInfo(
-                        cached_tokens=num_cached_tokens
-                    )
-
-                final_usage_chunk = ChatCompletionStreamResponse(
-                    id=request_id,
-                    object=chunk_object_type,
-                    created=created_time,
-                    choices=[],
-                    model=model_name,
-                    usage=final_usage,
-                )
-                final_usage_data = final_usage_chunk.model_dump_json(
-                    exclude_unset=False, exclude_none=False
-                )
-                yield f"data: {final_usage_data}\n\n"
 
             # report to FastAPI middleware aggregate usage across all choices
             num_completion_tokens = sum(previous_num_tokens)
@@ -1442,6 +1571,37 @@ class OpenAIServingChat(OpenAIServing):
                 completion_tokens=num_completion_tokens,
                 total_tokens=num_prompt_tokens + num_completion_tokens,
             )
+
+            try:
+                finsh_data = last_chunk_json
+            except Exception:
+                finsh_data = ""
+
+            is_debug_from_request = extra.get("is_debug_from_request", False)
+            stream_response_dict: dict[str, Any] = {
+                "last_chunk_json": finsh_data,
+                "previous_texts": previous_texts,
+            }
+            if is_debug_from_request:
+                response_log = finsh_data + f" response: {previous_texts}"
+                logger.info(
+                    f"success {response_log},Statu.SUCCESS",
+                    extra=extra,
+                )
+            else:
+                if logger.getEffectiveLevel() != logging.DEBUG:
+                    logger.info(
+                        f"success {finsh_data},Statu.SUCCESS",
+                        extra=extra,
+                    )
+                else:
+                    response_log = finsh_data + f" response: {previous_texts}"
+                    logger.debug(
+                        f"success {response_log},Statu.SUCCESS",
+                        extra=extra,
+                    )
+                if get_global_swaps("MINIO_ENABLE_LOG") == "true":
+                    save_response_logs_to_minio(stream_response_dict, extra_dict=extra)
 
             # Log complete streaming response if output logging is enabled
             if self.enable_log_outputs and self.request_logger:
@@ -1461,6 +1621,15 @@ class OpenAIServingChat(OpenAIServing):
                         delta=False,
                     )
 
+        except asyncio.CancelledError:
+
+            data = self.create_streaming_error_response(
+                f"Client disconnected, took = {int(time.time()) - created_time} s."
+                f"incomplete_response={previous_texts}",
+                hb_code=const.HBServeStatus.BAD_CONNECTION,
+                extra=extra,
+            )
+            yield f"data: {data}\n\n"
         except GenerationError as e:
             data = self._convert_generation_error_to_streaming_response(e)
             yield f"data: {data}\n\n"
@@ -1468,10 +1637,14 @@ class OpenAIServingChat(OpenAIServing):
             logger.exception("Error in chat completion stream generator.")
             if isinstance(e, HBServeError):
                 data = self.create_streaming_error_response(
-                    e, hb_code=e.hb_code
+                    str(e), hb_code=e.hb_code, extra=extra
                 )
             else:
-                data = self.create_streaming_error_response(e)
+                data = self.create_streaming_error_response(
+                    str(e),
+                    hb_code=const.HBServeStatus.BAD_REQUEST,
+                    extra=extra,
+                )
             yield f"data: {data}\n\n"
         # Send the final done message after all response.n are finished
         yield "data: [DONE]\n\n"
@@ -1494,13 +1667,28 @@ class OpenAIServingChat(OpenAIServing):
         created_time = int(time.time())
         final_res: RequestOutput | None = None
 
+        extra = extra or {}
         try:
             async for res in result_generator:
                 final_res = res
         except asyncio.CancelledError:
-            return self.create_error_response("Client disconnected")
+            return self.create_error_response(
+                f"Client disconnected. took = {int(time.time()) - created_time} s",
+                hb_code=const.HBServeStatus.BAD_CONNECTION,
+                extra=extra,
+            )
         except ValueError as e:
-            return self.create_error_response(e)
+            return self.create_error_response(
+                str(e),
+                hb_code=const.HBServeStatus.BAD_REQUEST,
+                extra=extra,
+            )
+        except Exception as e:
+            return self.create_error_response(
+                str(e),
+                hb_code=const.HBServeStatus.BAD_REQUEST,
+                extra=extra,
+            )
 
         assert final_res is not None
 
@@ -1512,13 +1700,14 @@ class OpenAIServingChat(OpenAIServing):
 
         role = self.get_chat_request_role(request)
         for output in final_res.outputs:
-            # Check for abort finish reason (e.g., structured output compilation failure)
             if output.finish_reason == "abort":
-                error_msg = output.stop_reason or "Request aborted"
+                e = ValueError(output.stop_reason)
                 return self.create_error_response(
-                    error_msg, hb_code=const.HBServeStatus.BAD_REQUEST
+                    str(e),
+                    hb_code=const.HBServeStatus.BAD_REQUEST,
+                    extra=extra,
                 )
-            
+
             # check for error finish reason and raise GenerationError
             # finish_reason='error' indicates a retryable request-level internal error
             self._raise_if_error(output.finish_reason, request_id)
@@ -1850,7 +2039,6 @@ class OpenAIServingChat(OpenAIServing):
             prompt_token_ids=(
                 final_res.prompt_token_ids if request.return_token_ids else None
             ),
-            kv_transfer_params=final_res.kv_transfer_params,
         )
 
         # Log complete response if output logging is enabled
@@ -1885,7 +2073,6 @@ class OpenAIServingChat(OpenAIServing):
                         delta=False,
                     )
         # MinIO upload - align with v0.10.1 customization
-        extra = extra or {}
         is_debug_from_request = extra.get("is_debug_from_request", False)
         response_dict = response.model_dump()
 
@@ -2126,3 +2313,14 @@ class OpenAIServingChat(OpenAIServing):
             engine_prompt["cache_salt"] = request.cache_salt
 
         return messages, [engine_prompt]
+
+
+@alru_cache(maxsize=1000)
+async def check_json_state_length(grammar_spec: str) -> None:
+    regex = json_schema.build_regex_from_schema(grammar_spec)
+    interegular.parse_pattern(regex).to_fsm()
+
+
+@alru_cache(maxsize=1000)
+async def check_regex_state_length(grammar_spec: str) -> None:
+    interegular.parse_pattern(grammar_spec).to_fsm()
