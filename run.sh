@@ -253,7 +253,7 @@ if [[ -n "${model_name}" && -n "${reasoning_parser_map[$model_name]}" ]]; then
 fi
 
 
-python_cmd="python3 -m vllm.entrypoints.openai.api_server --trust-remote-code "
+python_cmd="python3 -m vllm.entrypoints.openai.api_server --trust-remote-code --disable-cascade-attn "
 
 for key in ${!params[@]}; do
   value=${params[$key]}
