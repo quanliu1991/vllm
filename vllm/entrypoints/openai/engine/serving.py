@@ -2,6 +2,7 @@
 # SPDX-FileCopyrightText: Copyright contributors to the vLLM project
 import asyncio
 import json
+import os
 import sys
 import time
 import traceback
@@ -11,6 +12,7 @@ from http import HTTPStatus
 from typing import Any, ClassVar, Generic, Protocol, TypeAlias, TypeVar
 
 import numpy as np
+import yaml
 from fastapi import Request
 from openai.types.responses import (
     ToolChoiceFunction,
@@ -99,6 +101,12 @@ from vllm.inputs.data import (
     token_inputs,
 )
 from vllm.logger import init_logger
+from vllm.entrypoints.openai.hb_serve.const import HBServeStatus
+from vllm.entrypoints.openai.hb_serve.logger import (
+    ContextualLoggerAdapter,
+    SingleLogger,
+    Statu,
+)
 from vllm.logprobs import Logprob, PromptLogprobs
 from vllm.lora.request import LoRARequest
 from vllm.outputs import CompletionOutput, PoolingRequestOutput, RequestOutput
@@ -134,7 +142,19 @@ class GenerationError(Exception):
         self.status_code = HTTPStatus.INTERNAL_SERVER_ERROR
 
 
-logger = init_logger(__name__)
+logger = SingleLogger.get_logger()
+request_logger = ContextualLoggerAdapter(
+    logger,
+    {
+        "sid": None,
+        "qid": None,
+        "aid": None,
+        "iid": None,
+        "rid": None,
+        "uid": None,
+        "category": None,
+    },
+)
 
 
 class RendererRequest(Protocol):
@@ -237,6 +257,19 @@ class OpenAIServing:
         self.return_tokens_as_token_ids = return_tokens_as_token_ids
 
         self.log_error_stack = log_error_stack
+
+        self.error_map: list[dict[str, Any]] = []
+        try:
+            error_map_path = os.getenv(
+                "ERROR_MAP_PATH", "/workspace/hb-serve/utils/error_map.yaml"
+            )
+            with open(error_map_path, "r", encoding="utf-8") as f:
+                loaded = yaml.safe_load(f) or {}
+                errs = loaded.get("errors")
+                if isinstance(errs, list):
+                    self.error_map = errs
+        except Exception as e:
+            print(e)
 
         self.model_config = engine_client.model_config
         self.renderer = engine_client.renderer
@@ -606,8 +639,11 @@ class OpenAIServing:
         status_code: HTTPStatus = HTTPStatus.BAD_REQUEST,
         param: str | None = None,
         hb_code: str | Any | None = None,
+        extra: dict[str, Any] | None = None,
+        model_name: str | None = None,
     ) -> ErrorResponse:
         exc: Exception | None = None
+        extra = extra or {}
 
         if isinstance(message, Exception):
             exc = message
@@ -646,15 +682,29 @@ class OpenAIServing:
             else:
                 traceback.print_stack()
 
+        # Normalize error message (HBServe-specific mapping).
+        normalize_message = self.error_response_normalize(message)
+
         hb_code_value: str | None = None
         if hb_code is not None:
             # Support passing HBServeStatus enum (with .value) or raw string.
             hb_code_value = getattr(hb_code, "value", hb_code)
             hb_code_value = str(hb_code_value)
 
+        # Record the error in HBServe logs when possible.
+        try:
+            log_message = self.log_temp(extra.get("rid", "null"), normalize_message, Statu.FAILED.value)
+            if hb_code_value == HBServeStatus.BAD_CONNECTION.value:
+                request_logger.warning(log_message, extra=extra)
+            else:
+                request_logger.error(log_message, extra=extra)
+        except Exception:
+            # Logging should never break error handling.
+            pass
+
         return ErrorResponse(
             error=ErrorInfo(
-                message=sanitize_message(message),
+                message=sanitize_message(normalize_message),
                 type=err_type,
                 code=status_code.value,
                 param=param,
@@ -669,7 +719,10 @@ class OpenAIServing:
         status_code: HTTPStatus = HTTPStatus.BAD_REQUEST,
         param: str | None = None,
         hb_code: str | Any | None = None,
+        extra: dict[str, Any] | None = None,
+        model_name: str | None = None,
     ) -> str:
+        extra = extra or {}
         json_str = json.dumps(
             self.create_error_response(
                 message=message,
@@ -677,9 +730,25 @@ class OpenAIServing:
                 status_code=status_code,
                 param=param,
                 hb_code=hb_code,
+                extra=extra,
+                model_name=model_name,
             ).model_dump()
         )
         return json_str
+
+    def error_response_normalize(self, raw_error: str) -> str:
+        """Normalize raw error messages using HBServe error map."""
+        try:
+            for error_item in self.error_map:
+                keyword = error_item.get("keyword", "")
+                if keyword and raw_error.startswith(keyword):
+                    ch_title = error_item.get("ch_title")
+                    ch_message = error_item.get("ch_message")
+                    if ch_title and ch_message:
+                        return f"【{ch_title}】: {ch_message} ({raw_error})"
+            return raw_error
+        except Exception:
+            return raw_error
 
     def _raise_if_error(self, finish_reason: str | None, request_id: str) -> None:
         """Raise GenerationError if finish_reason indicates an error."""
@@ -865,6 +934,8 @@ class OpenAIServing:
         else:
             max_tokens = getattr(request, "max_tokens", None)
 
+        max_think_token = 4096 if getattr(request, "reasoning", False) else 0
+
         # Note: input length can be up to model context length - 1 for
         # completion-like requests.
         if token_num >= max_model_len:
@@ -877,13 +948,17 @@ class OpenAIServing:
                 value=token_num,
             )
 
-        if max_tokens is not None and token_num + max_tokens > max_model_len:
+        if max_tokens is not None and (
+            token_num + max_tokens + max_think_token > max_model_len
+        ):
             raise VLLMValidationError(
-                "'max_tokens' or 'max_completion_tokens' is too large: "
-                f"{max_tokens}. This model's maximum context length is "
-                f"{max_model_len} tokens and your request has "
-                f"{token_num} input tokens ({max_tokens} > {max_model_len}"
-                f" - {token_num}).",
+                f"This model's maximum context length is "
+                f"{max_model_len} tokens. However, you requested "
+                f"{max_tokens + max_think_token + token_num} tokens "
+                f"({token_num} in the messages, "
+                f"{max_think_token} in the completion reasoning, "
+                f"{max_tokens} in the completion answer). "
+                f"Please reduce the length of the messages or completion.",
                 parameter="max_tokens",
                 value=max_tokens,
             )
