@@ -39,6 +39,9 @@ KVOffloadingBackend = Literal["native", "lmcache"]
 class CacheConfig:
     """Configuration for the KV cache."""
 
+    llm_model_name: str | None = None
+    """llm model name to grafana"""
+
     block_size: SkipValidation[BlockSize] = None  # type: ignore[assignment]
     """Size of a contiguous cache block in number of tokens. On CUDA devices,
     only block sizes up to 32 are supported.
@@ -146,6 +149,8 @@ class CacheConfig:
     """The number of blocks to allocate for GPU memory."""
     num_cpu_blocks: int | None = field(default=None, init=False)
     """The number of blocks to allocate for CPU memory."""
+    token_number: int | None = field(default=None, init=False)
+    """self.num_gpu_blocks * self.block_size"""
 
     kv_sharing_fast_prefill: bool = False
     """This feature is work in progress and no prefill optimization takes place
@@ -202,6 +207,8 @@ class CacheConfig:
             # Post-init/derived counters
             "num_gpu_blocks",
             "num_cpu_blocks",
+            # Metrics-only fields; should not affect compiled graph shape
+            "llm_model_name",
             # WIP feature toggle not impacting compiled graph shape
             "kv_sharing_fast_prefill",
         }
@@ -214,6 +221,13 @@ class CacheConfig:
     def metrics_info(self):
         # convert cache_config to dict(key: str, value: str) for prometheus
         # metrics info
+        try:
+            if self.num_gpu_blocks is not None and self.block_size is not None:
+                self.token_number = int(self.num_gpu_blocks) * int(self.block_size)
+            else:
+                self.token_number = None
+        except Exception:
+            self.token_number = None
         return {key: str(value) for key, value in self.__dict__.items()}
 
     @field_validator("cache_dtype", mode="after")

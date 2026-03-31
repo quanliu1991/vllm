@@ -366,6 +366,7 @@ class EngineArgs:
     enable_return_routed_experts: bool = ModelConfig.enable_return_routed_experts
     model_weights: str = ModelConfig.model_weights
     served_model_name: str | list[str] | None = ModelConfig.served_model_name
+    llm_model_name: str | None = ModelConfig.llm_model_name
     tokenizer: str | None = ModelConfig.tokenizer
     hf_config_path: str | None = ModelConfig.hf_config_path
     runner: RunnerOption = ModelConfig.runner
@@ -713,6 +714,9 @@ class EngineArgs:
         )
         model_group.add_argument(
             "--served-model-name", **model_kwargs["served_model_name"]
+        )
+        model_group.add_argument(
+            "--llm-model-name", **model_kwargs["llm_model_name"]
         )
         model_group.add_argument("--config-format", **model_kwargs["config_format"])
         # This one is a special case because it can bool
@@ -1356,6 +1360,7 @@ class EngineArgs:
             skip_tokenizer_init=self.skip_tokenizer_init,
             enable_prompt_embeds=self.enable_prompt_embeds,
             served_model_name=self.served_model_name,
+            llm_model_name=self.llm_model_name,
             language_model_only=self.language_model_only,
             limit_mm_per_prompt=self.limit_mm_per_prompt,
             enable_mm_embeds=self.enable_mm_embeds,
@@ -1507,6 +1512,7 @@ class EngineArgs:
             kv_cache_memory_bytes=self.kv_cache_memory_bytes,
             swap_space=self.swap_space,
             cache_dtype=resolved_cache_dtype,  # type: ignore[arg-type]
+            llm_model_name=self.llm_model_name,
             is_attention_free=model_config.is_attention_free,
             num_gpu_blocks_override=self.num_gpu_blocks_override,
             sliding_window=sliding_window,
