@@ -500,9 +500,6 @@ class Scheduler(SchedulerInterface):
                             token_budget += num_scheduled_tokens.pop(preempted_req_id)
                             req_to_new_blocks.pop(preempted_req_id)
                             scheduled_spec_decode_tokens.pop(preempted_req_id, None)
-                            # Clean up structured output tracking for preempted request
-                            if preempted_req.use_structured_output:
-                                structured_output_request_ids.remove(preempted_req_id)
                             preempted_encoder_inputs = scheduled_encoder_inputs.pop(
                                 preempted_req_id, None
                             )
@@ -1490,6 +1487,35 @@ class Scheduler(SchedulerInterface):
             else:
                 # Invariant: EngineCore returns no partial prefill outputs.
                 assert not prompt_logprobs_tensors
+
+        # If structured-output grammar compilation failed for some queued
+        # requests, emit an EngineCoreOutput carrying stop_reason so the
+        # OpenAI layer can surface the underlying error details.
+        if self.structured_output_compiled_failed:
+            for req_structure_output_fail in self.structured_output_compiled_failed:
+                req_id = req_structure_output_fail.request_id
+                request = self.requests.get(req_id)
+                client_index = (
+                    request.client_index
+                    if request is not None
+                    else req_structure_output_fail.client_index
+                )
+                stop_reason = (
+                    "structured_output_compiled_failed: "
+                    f"{req_structure_output_fail.structured_output_request.grammar}"
+                )
+                outputs[client_index].append(
+                    EngineCoreOutput(
+                        request_id=req_id,
+                        new_token_ids=[0],
+                        finish_reason=req_structure_output_fail.get_finished_reason(),
+                        new_logprobs=None,
+                        new_prompt_logprobs_tensors=None,
+                        stop_reason=stop_reason,
+                        events=req_structure_output_fail.take_events(),
+                    )
+                )
+            self.structured_output_compiled_failed.clear()
 
         # Remove the stopped requests from the running and waiting queues.
         if stopped_running_reqs:

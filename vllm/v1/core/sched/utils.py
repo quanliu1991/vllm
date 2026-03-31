@@ -1,13 +1,14 @@
 # SPDX-License-Identifier: Apache-2.0
 # SPDX-FileCopyrightText: Copyright contributors to the vLLM project
 import contextlib
+import os
 from collections.abc import Sequence
 
 from vllm.sampling_params import RepetitionDetectionParams
 from vllm.v1.request import Request, RequestStatus
-import os
-OPEN_THINK_TAG = 248068 #int(os.getenv("OPEN_THINK_TAG", 151667))
-CLOSE_THINK_TAG = 248069 #int(os.getenv("CLOSE_THINK_TAG", 151668))
+
+OPEN_THINK_TAG = int(os.getenv("OPEN_THINK_TAG", "151667"))
+CLOSE_THINK_TAG = int(os.getenv("CLOSE_THINK_TAG", "151668"))
 
 
 
@@ -96,12 +97,14 @@ def remove_all(lst: list, items_to_remove: set) -> list:
 
 
 def check_stop(request: Request, max_model_len: int) -> bool:
+    """Stop when length cap hits; with thinking, only count post-answer tokens."""
     is_thinking = False
-    if request.all_token_ids[request.num_prompt_tokens-2] == OPEN_THINK_TAG: # -2 is <think> 被拼接到prompt中
+    n_prompt = request.num_prompt_tokens
+    if n_prompt < len(request.all_token_ids) and request.all_token_ids[n_prompt] == OPEN_THINK_TAG:
         is_thinking = True
     if is_thinking:
-        if CLOSE_THINK_TAG in request.all_token_ids[request.num_prompt_tokens:]:
-            think_close_index = request.all_token_ids[request.num_prompt_tokens:].index(CLOSE_THINK_TAG)
+        if CLOSE_THINK_TAG in request.all_token_ids[n_prompt:]:
+            think_close_index = request.all_token_ids[n_prompt:].index(CLOSE_THINK_TAG)
             number_answer_tokens = request.num_output_tokens - think_close_index + 1
             if (request.num_tokens >= max_model_len
                     or number_answer_tokens >= request.max_tokens):
@@ -110,9 +113,7 @@ def check_stop(request: Request, max_model_len: int) -> bool:
         else:
             return False
     elif (request.num_tokens >= max_model_len
-
-        or request.num_output_tokens >= request.max_tokens
-    ):
+            or request.num_output_tokens >= request.max_tokens):
         request.status = RequestStatus.FINISHED_LENGTH_CAPPED
         return True
 
