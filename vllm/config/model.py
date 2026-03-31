@@ -46,6 +46,7 @@ from vllm.transformers_utils.model_arch_config_convertor import (
     ModelArchConfigConvertorBase,
 )
 from vllm.transformers_utils.runai_utils import ObjectStorageModel, is_runai_obj_uri
+from vllm.entrypoints.openai.hb_serve.security.config_security import config_decrypt
 from vllm.transformers_utils.utils import maybe_model_redirect
 from vllm.utils.import_utils import LazyLoader
 from vllm.v1.attention.backends.registry import AttentionBackendEnum
@@ -108,6 +109,8 @@ class ModelConfig:
     """Original model weights path. Used when the model is pulled from object
     storage (e.g., RunAI) to preserve the original URI while `model` points to
     the local directory."""
+    llm_model_name: str = "Qwen/Qwen3-0.6B"
+    """Name of the model to expose for observability (e.g., Grafana)."""
     runner: RunnerOption = "auto"
     """The type of model runner to use. Each vLLM instance only supports one
     model runner, even if the same model can be used for multiple types."""
@@ -433,6 +436,7 @@ class ModelConfig:
         self.served_model_name = get_served_model_name(
             self.model, self.served_model_name
         )
+        self.org_model = self.model
         self.model = maybe_model_redirect(self.model)
         # The tokenizer is consistent with the model by default.
         if self.tokenizer is None:
@@ -461,6 +465,27 @@ class ModelConfig:
             hf_overrides_fn = None
 
         self.maybe_pull_model_tokenizer_for_runai(self.model, self.tokenizer)
+
+        def check_config_files() -> None:
+            if not os.path.isdir(self.model):
+                return
+            try:
+                files = [
+                    f
+                    for f in os.listdir(self.model)
+                    if os.path.isfile(os.path.join(self.model, f))
+                ]
+                if not files:
+                    config_decrypt(self.org_model, self.model)
+                    os.environ["MODEL_ENCRYPTION"] = "true"
+                else:
+                    os.environ["MODEL_ENCRYPTION"] = "false"
+            except Exception:
+                # Don't let config decryption break model initialization.
+                pass
+
+        if is_runai_obj_uri(self.org_model):
+            check_config_files()
 
         if self.override_attention_dtype is not None and not current_platform.is_rocm():
             warnings.warn(
@@ -754,7 +779,7 @@ class ModelConfig:
         if is_runai_obj_uri(tokenizer):
             object_storage_tokenizer = ObjectStorageModel(url=tokenizer)
             object_storage_tokenizer.pull_files(
-                model,
+                tokenizer,
                 ignore_pattern=["*.pt", "*.safetensors", "*.bin", "*.tensors", "*.pth"],
             )
             self.tokenizer = object_storage_tokenizer.dir
