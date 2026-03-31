@@ -16,7 +16,7 @@ def test_prefill_kv_computed_with_cache():
     req_stats.scheduled_ts = 0.1
     req_stats.first_token_ts = 0.5
     req_stats.last_token_ts = 5.0
-    req_stats.num_generation_tokens = 50
+    req_stats.num_generation_tokens = {"unknown": 50}
 
     # Case 1: With prefix cache (1200 tokens cached)
     iteration_stats.update_from_finished_request(
@@ -45,7 +45,7 @@ def test_prefill_kv_computed_no_cache():
     req_stats.scheduled_ts = 0.1
     req_stats.first_token_ts = 0.5
     req_stats.last_token_ts = 2.0
-    req_stats.num_generation_tokens = 10
+    req_stats.num_generation_tokens = {"unknown": 10}
 
     # Case 2: No prefix cache
     iteration_stats.update_from_finished_request(
@@ -74,7 +74,7 @@ def test_prefill_kv_computed_edge_cases():
     req_stats.scheduled_ts = 0.1
     req_stats.first_token_ts = 0.5
     req_stats.last_token_ts = 1.0
-    req_stats.num_generation_tokens = 1
+    req_stats.num_generation_tokens = {"unknown": 1}
 
     # Case 3: Negative num_cached_tokens (shouldn't happen, but handle gracefully)
     iteration_stats.update_from_finished_request(

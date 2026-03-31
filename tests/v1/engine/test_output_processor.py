@@ -937,16 +937,16 @@ def test_iteration_stats(dummy_test_vectors):
         ]
     )
 
-    assert iteration_stats.num_prompt_tokens == total_prompt_tokens
-    assert iteration_stats.num_generation_tokens == num_active
+    assert sum(iteration_stats.num_prompt_tokens.values()) == total_prompt_tokens
+    assert sum(iteration_stats.num_generation_tokens.values()) == num_active
 
     # Just decodes in this step.
     outputs = engine_core.get_outputs()[:num_active]
     iteration_stats = IterationStats()
     output_processor.process_outputs(outputs, engine_core_timestamp, iteration_stats)
 
-    assert iteration_stats.num_prompt_tokens == 0
-    assert iteration_stats.num_generation_tokens == num_active
+    assert sum(iteration_stats.num_prompt_tokens.values()) == 0
+    assert sum(iteration_stats.num_generation_tokens.values()) == num_active
 
     # Add a new request - prefill and 2 decodes in this step.
     output_processor.add_request(inactive_request, None)
@@ -956,16 +956,16 @@ def test_iteration_stats(dummy_test_vectors):
     output_processor.process_outputs(outputs, engine_core_timestamp, iteration_stats)
     total_prompt_tokens = len(dummy_test_vectors.prompt_tokens[num_active - 1])
 
-    assert iteration_stats.num_prompt_tokens == total_prompt_tokens
-    assert iteration_stats.num_generation_tokens == num_active
+    assert sum(iteration_stats.num_prompt_tokens.values()) == total_prompt_tokens
+    assert sum(iteration_stats.num_generation_tokens.values()) == num_active
 
     # Just decodes in this step.
     outputs = engine_core.get_outputs()[:num_active]
     iteration_stats = IterationStats()
     output_processor.process_outputs(outputs, engine_core_timestamp, iteration_stats)
 
-    assert iteration_stats.num_prompt_tokens == 0
-    assert iteration_stats.num_generation_tokens == num_active
+    assert sum(iteration_stats.num_prompt_tokens.values()) == 0
+    assert sum(iteration_stats.num_generation_tokens.values()) == num_active
 
 
 @pytest.mark.parametrize("log_stats", [True, False])

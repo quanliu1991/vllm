@@ -43,6 +43,7 @@ class SpanAttributes:
     GEN_AI_LATENCY_TIME_IN_MODEL_PREFILL = "gen_ai.latency.time_in_model_prefill"
     GEN_AI_LATENCY_TIME_IN_MODEL_DECODE = "gen_ai.latency.time_in_model_decode"
     GEN_AI_LATENCY_TIME_IN_MODEL_INFERENCE = "gen_ai.latency.time_in_model_inference"
+    HB_SERVER_REQUEST_PRIORITY = "hb.server.request.priority"
 
 
 class LoadingSpanAttributes:

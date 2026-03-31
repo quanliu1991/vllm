@@ -139,7 +139,9 @@ class LoggingStatLogger(StatLoggerBase):
         # Save tracked stats for token counters.
         # Use computed tokens for prompt throughput (excludes cached/transferred)
         self.num_prompt_tokens += iteration_stats.prompt_token_stats.computed
-        self.num_generation_tokens += iteration_stats.num_generation_tokens
+        self.num_generation_tokens += sum(
+            iteration_stats.num_generation_tokens.values()
+        )
         self.num_corrupted_reqs += iteration_stats.num_corrupted_reqs
         self.num_preemptions += iteration_stats.num_preempted_reqs
 
@@ -592,6 +594,9 @@ class PrometheusStatLogger(AggregateStatLoggerBase):
             documentation="Number of prefill tokens processed.",
             labelnames=labelnames,
         )
+        # Keep a reference to the base counter so we can dynamically attach
+        # different `model_name` label values (for per-request model breakdown).
+        self.counter_prompt_tokens_base = counter_prompt_tokens
         self.counter_prompt_tokens = make_per_engine(
             counter_prompt_tokens, engine_indexes, model_name
         )
@@ -636,6 +641,7 @@ class PrometheusStatLogger(AggregateStatLoggerBase):
             documentation="Number of generation tokens processed.",
             labelnames=labelnames,
         )
+        self.counter_generation_tokens_base = counter_generation_tokens
         self.counter_generation_tokens = make_per_engine(
             counter_generation_tokens, engine_indexes, model_name
         )
@@ -1113,7 +1119,11 @@ class PrometheusStatLogger(AggregateStatLoggerBase):
         self.counter_num_preempted_reqs[engine_idx].inc(
             iteration_stats.num_preempted_reqs
         )
-        self.counter_prompt_tokens[engine_idx].inc(iteration_stats.num_prompt_tokens)
+        prompt_tokens_by_model = iteration_stats.num_prompt_tokens
+        for m_name, num_tokens in prompt_tokens_by_model.items():
+            self.counter_prompt_tokens_base.labels(
+                model_name=m_name, engine=str(engine_idx)
+            ).inc(num_tokens)
         # Labeled prompt token counters by source
         pts = iteration_stats.prompt_token_stats
         for source in PromptTokenStats.ALL_SOURCES:
@@ -1122,12 +1132,15 @@ class PrometheusStatLogger(AggregateStatLoggerBase):
             )
         self.counter_prompt_tokens_cached[engine_idx].inc(pts.cached_tokens)
         self.counter_prompt_tokens_recomputed[engine_idx].inc(pts.recomputed_tokens)
-        self.counter_generation_tokens[engine_idx].inc(
-            iteration_stats.num_generation_tokens
-        )
-        self.histogram_iteration_tokens[engine_idx].observe(
-            iteration_stats.num_prompt_tokens + iteration_stats.num_generation_tokens
-        )
+        generation_tokens_by_model = iteration_stats.num_generation_tokens
+        for m_name, num_tokens in generation_tokens_by_model.items():
+            self.counter_generation_tokens_base.labels(
+                model_name=m_name, engine=str(engine_idx)
+            ).inc(num_tokens)
+
+        prompt_total = sum(prompt_tokens_by_model.values())
+        gen_total = sum(generation_tokens_by_model.values())
+        self.histogram_iteration_tokens[engine_idx].observe(prompt_total + gen_total)
 
         for max_gen_tokens in iteration_stats.max_num_generation_tokens_iter:
             self.histogram_max_num_generation_tokens_request[engine_idx].observe(

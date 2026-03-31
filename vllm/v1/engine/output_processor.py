@@ -149,6 +149,7 @@ class RequestState:
         n: int | None = None,
         temperature: float | None = None,
         stream_input: bool = False,
+        priority: int = 0,
     ):
         self.request_id = request_id
         self.external_req_id = external_req_id
@@ -169,6 +170,7 @@ class RequestState:
         self.top_p = top_p
         self.n = n
         self.temperature = temperature
+        self.priority = priority
         self.is_prefilling = True
         self.queue = queue
         self.num_cached_tokens = 0
@@ -264,6 +266,7 @@ class RequestState:
             log_stats=log_stats,
             stream_interval=stream_interval,
             stream_input=request.resumable,
+            priority=request.priority,
         )
 
     def make_request_output(
@@ -737,6 +740,11 @@ class OutputProcessor:
         decode_time = metrics.last_token_ts - metrics.first_token_ts
         inference_time = metrics.last_token_ts - metrics.scheduled_ts
 
+        num_gen = metrics.num_generation_tokens
+        completion_tokens = (
+            sum(num_gen.values()) if isinstance(num_gen, dict) else num_gen
+        )
+
         # Build attributes dict
         attributes: dict[str, Any] = {
             SpanAttributes.GEN_AI_LATENCY_TIME_TO_FIRST_TOKEN: (
@@ -745,13 +753,12 @@ class OutputProcessor:
             SpanAttributes.GEN_AI_LATENCY_E2E: e2e_time,
             SpanAttributes.GEN_AI_LATENCY_TIME_IN_QUEUE: queued_time,
             SpanAttributes.GEN_AI_USAGE_PROMPT_TOKENS: prompt_length,
-            SpanAttributes.GEN_AI_USAGE_COMPLETION_TOKENS: (
-                metrics.num_generation_tokens
-            ),
+            SpanAttributes.GEN_AI_USAGE_COMPLETION_TOKENS: completion_tokens,
             SpanAttributes.GEN_AI_LATENCY_TIME_IN_MODEL_PREFILL: prefill_time,
             SpanAttributes.GEN_AI_LATENCY_TIME_IN_MODEL_DECODE: decode_time,
             SpanAttributes.GEN_AI_LATENCY_TIME_IN_MODEL_INFERENCE: inference_time,
             SpanAttributes.GEN_AI_REQUEST_ID: req_state.external_req_id,
+            SpanAttributes.HB_SERVER_REQUEST_PRIORITY: req_state.priority,
         }
 
         # Add optional request parameters
@@ -818,6 +825,9 @@ class OutputProcessor:
         )
         self.lora_states.request_finished(req_state.request_id, req_state.lora_name)
 
+        total_generation_tokens = sum(
+            req_state.stats.num_generation_tokens.values()
+        )
         ParentRequest.observe_finished_request(
-            req_state.parent_req, iteration_stats, req_state.stats.num_generation_tokens
+            req_state.parent_req, iteration_stats, total_generation_tokens
         )
