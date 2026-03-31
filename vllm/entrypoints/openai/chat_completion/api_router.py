@@ -70,6 +70,13 @@ async def create_chat_completion(request: ChatCompletionRequest, raw_request: Re
             message="The model does not support Chat Completions API"
         )
 
+    # Align with v0.10.1 HBServe: stable id for tracing / MinIO (includes model).
+    if request.model:
+        request.request_id = (
+            f"chatcmpl-{handler._base_request_id(raw_request, request.request_id)}"
+            f"--{request.model}"
+        )
+
     try:
         generator = await handler.create_chat_completion(request, raw_request)
     except Exception as e:
