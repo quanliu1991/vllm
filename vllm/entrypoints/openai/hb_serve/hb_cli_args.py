@@ -35,9 +35,5 @@ def make_hb_arg_parser(parser: FlexibleArgumentParser) -> FlexibleArgumentParser
                         type=str,
                         default=None,
                         help="lora models all one")
-    parser.add_argument("--is-reasoning-model",
-                        type=str,
-                        default="false",
-                        help="Whether it is a model that supports reasoning")
     return parser
 
