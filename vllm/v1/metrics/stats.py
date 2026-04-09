@@ -335,6 +335,10 @@ class IterationStats:
 
         The engine may append additional suffixes for uniqueness (e.g.
         `-0`, `-beam-0`, `_1`, or a random uuid for beam search).
+
+        Gateways/clients sometimes append a short hex id to ``model`` (e.g.
+        ``Qwen3.5-35B-93ec2f19``); strip 8- and 16-char hex tails so Prometheus
+        ``model_name`` aggregates on the logical model name.
         """
         if "--" not in request_id:
             return "unknown"
@@ -343,7 +347,10 @@ class IterationStats:
 
         # Beam search appends `-beam-{i}` after an extra uuid.
         model_part = re.sub(r"-beam-\d+$", "", model_part)
-        model_part = re.sub(r"-[0-9a-f]{16}$", "", model_part)
+        # Long hex suffix (e.g. uuid fragment in model name).
+        model_part = re.sub(r"-[0-9a-fA-F]{16}$", "", model_part)
+        # Short hex suffix (common in routed / versioned model ids).
+        model_part = re.sub(r"-[0-9a-fA-F]{8}$", "", model_part)
 
         # Common uniqueness suffixes.
         model_part = re.sub(r"-\d+$", "", model_part)

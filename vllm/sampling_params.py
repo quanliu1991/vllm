@@ -273,6 +273,10 @@ class SamplingParams(
     """Arbitrary additional args, that can be used by custom sampling
     implementations, plugins, etc. Not used by any in-tree sampling
     implementations."""
+    max_thinking_tokens: int | None = None
+    """Maximum length of the reasoning (thinking) segment in tokens. When
+    ``None``, the engine uses ``VLLM_MAX_THINKING_TOKENS``. Used by reasoning
+    stop in the sampler (e.g. Qwen ``<think>`` caps)."""
 
     # Fields used for bad words
     bad_words: list[str] | None = None
@@ -321,6 +325,7 @@ class SamplingParams(
         extra_args: dict[str, Any] | None = None,
         skip_clone: bool = False,
         repetition_detection: RepetitionDetectionParams | None = None,
+        max_thinking_tokens: int | None = None,
     ) -> "SamplingParams":
         if logit_bias is not None:
             # Convert token_id to integer
@@ -361,6 +366,7 @@ class SamplingParams(
             extra_args=extra_args,
             skip_clone=skip_clone,
             repetition_detection=repetition_detection,
+            max_thinking_tokens=max_thinking_tokens,
         )
 
     def __post_init__(self) -> None:
@@ -502,6 +508,11 @@ class SamplingParams(
             raise ValueError(
                 "stop strings are only supported when detokenize is True. "
                 "Set detokenize=True to use stop."
+            )
+        if self.max_thinking_tokens is not None and self.max_thinking_tokens < 1:
+            raise ValueError(
+                "max_thinking_tokens must be at least 1 when set, got "
+                f"{self.max_thinking_tokens}."
             )
 
     def _verify_greedy_sampling(self) -> None:
@@ -868,7 +879,8 @@ class SamplingParams(
             "spaces_between_special_tokens="
             f"{self.spaces_between_special_tokens}, "
             f"structured_outputs={self.structured_outputs}, "
-            f"extra_args={self.extra_args})"
+            f"extra_args={self.extra_args}, "
+            f"max_thinking_tokens={self.max_thinking_tokens})"
         )
 
     @staticmethod

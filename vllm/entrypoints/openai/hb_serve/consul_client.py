@@ -120,8 +120,8 @@ class ConsulList:
 
                 for consul_host, consul_port in zip(self.consul_host_list, self.consul_port_list):
                     consul = ConsulClient(consul_host, consul_port, self.consul_token)
-                    consul.register_service(self.host, self.port, meta=meta)
-                    # consul.register_service("10.20.152.74", 8300, meta=meta)
+                    # consul.register_service(self.host, self.port, meta=meta)
+                    consul.register_service("10.20.152.74", 8302, meta=meta)
                     self.consul_list.append(consul)
                     contextual_logger.info(
                         f"register service {self.host}:{self.port} meta={meta}, status: {Statu.SUCCESS}",
@@ -146,8 +146,8 @@ class ConsulList:
                         lora="1" if self.allow_lora else "0"
                         ).dict(exclude_unset=True)
             for c in self.consul_list:
-                c.register_service(self.host, self.port, meta=meta)
-                # c.register_service("10.20.152.74", 8300, meta=meta)
+                # c.register_service(self.host, self.port, meta=meta)
+                c.register_service("10.20.152.74", 8302, meta=meta)
                 contextual_logger.info(
                     f"update consul service {self.host}:{self.port} meta={meta}, status: {Statu.SUCCESS}",
                     extra={'category': enum_to_json(LogType.SERVICE_DISCOVERY)})

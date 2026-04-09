@@ -76,6 +76,10 @@ _REASONING_PARSERS_TO_REGISTER = {
         "qwen3_reasoning_parser",
         "Qwen3ReasoningParser",
     ),
+    "qwen3.5": (
+        "qwen3p5_reasoning_parser",
+        "Qwen3p5ReasoningParser",
+    ),
     "seed_oss": (
         "seedoss_reasoning_parser",
         "SeedOSSReasoningParser",

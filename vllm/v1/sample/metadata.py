@@ -39,7 +39,12 @@ class SamplingMetadata:
 
     # Loaded logits processors
     logitsprocs: LogitsProcessors
-    max_thinking_tokens: int = 4096
+    # Per-request cap on reasoning segment length (see SamplingParams.max_thinking_tokens).
+    max_thinking_tokens: list[int]
 
     # Speculative token ids
     spec_token_ids: list[list[int]] | None = None
+
+    # Per-request: prompt has <think> open token at index num_prompt_tokens-2 (Qwen3.5
+    # template); open tag is not present in output_token_ids. None = do not use.
+    reasoning_open_think_in_prompt: list[bool] | None = None

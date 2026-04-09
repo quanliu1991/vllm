@@ -8,6 +8,7 @@ from typing import cast
 import numpy as np
 import torch
 
+from vllm import envs
 from vllm.lora.request import LoRARequest
 from vllm.multimodal.inputs import MultiModalFeatureSpec
 from vllm.pooling_params import PoolingParams
@@ -22,6 +23,7 @@ from vllm.v1.sample.logits_processor import (
     MoveDirectionality,
 )
 from vllm.v1.sample.metadata import SamplingMetadata
+from vllm.v1.sample.ops.reasoning_sampler import CLOSE_THINK_TAG, OPEN_THINK_TAG
 from vllm.v1.utils import copy_slice
 from vllm.v1.worker.block_table import MultiGroupBlockTable
 
@@ -92,6 +94,10 @@ class InputBatch:
         max_num_blocks_per_req: list[int] | None = None,
         logitsprocs: LogitsProcessors | None = None,
         logitsprocs_need_output_token_ids: bool = False,
+        # apply_reasoning_stop_length (reasoning_sampler) needs per-request output
+        # token history; without this, SamplingMetadata.output_token_ids stays [] when
+        # no penalties/bad_words/logitsprocs require it (v1 perf optimization).
+        reasoning_needs_output_token_ids: bool = True,
         is_spec_decode: bool = False,
         is_pooling_model: bool = False,
         cp_kv_cache_interleave_size: int = 1,
@@ -205,6 +211,12 @@ class InputBatch:
         self.repetition_penalties_cpu = self.repetition_penalties_cpu_tensor.numpy()
         self.repetition_penalties_reqs: set[str] = set()
 
+        self.max_thinking_tokens_cpu = np.full(
+            max_num_reqs,
+            envs.VLLM_MAX_THINKING_TOKENS,
+            dtype=np.int32,
+        )
+
         # Speculative decoding
         self.num_accepted_tokens_cpu_tensor = torch.ones(
             (max_num_reqs,), dtype=torch.int64, device="cpu", pin_memory=pin_memory
@@ -249,6 +261,7 @@ class InputBatch:
         # data structure
         self.logitsprocs = logitsprocs or LogitsProcessors()
         self.logitsprocs_need_output_token_ids = logitsprocs_need_output_token_ids
+        self.reasoning_needs_output_token_ids = reasoning_needs_output_token_ids
 
         # Store last speculative tokens for sampler.
         self.spec_token_ids: list[list[int]] = [[] for _ in range(max_num_reqs)]
@@ -371,6 +384,11 @@ class InputBatch:
             if sampling_params.repetition_penalty != 1.0:
                 self.repetition_penalties_reqs.add(req_id)
 
+            mt = sampling_params.max_thinking_tokens
+            self.max_thinking_tokens_cpu[req_index] = int(
+                mt if mt is not None else envs.VLLM_MAX_THINKING_TOKENS
+            )
+
             # NOTE(woosuk): self.generators should not include the requests that
             # do not have their own generator.
             if request.generator is not None:
@@ -419,6 +437,7 @@ class InputBatch:
             self.logits_processing_needs_token_ids[req_index] = (
                 pooling_params.requires_token_ids
             )
+            self.max_thinking_tokens_cpu[req_index] = envs.VLLM_MAX_THINKING_TOKENS
         else:
             raise NotImplementedError("Unrecognized request type")
 
@@ -606,6 +625,10 @@ class InputBatch:
             self.repetition_penalties_cpu[i2],
             self.repetition_penalties_cpu[i1],
         )
+        self.max_thinking_tokens_cpu[i1], self.max_thinking_tokens_cpu[i2] = (
+            self.max_thinking_tokens_cpu[i2],
+            self.max_thinking_tokens_cpu[i1],
+        )
         self.num_accepted_tokens_cpu[i1], self.num_accepted_tokens_cpu[i2] = (
             self.num_accepted_tokens_cpu[i2],
             self.num_accepted_tokens_cpu[i1],
@@ -728,6 +751,9 @@ class InputBatch:
             self.repetition_penalties_cpu[empty_index] = self.repetition_penalties_cpu[
                 last_req_index
             ]
+            self.max_thinking_tokens_cpu[empty_index] = self.max_thinking_tokens_cpu[
+                last_req_index
+            ]
             self.num_accepted_tokens_cpu[empty_index] = self.num_accepted_tokens_cpu[
                 last_req_index
             ]
@@ -818,12 +844,32 @@ class InputBatch:
             not self.no_penalties
             or bool(self.bad_words_token_ids)
             or self.logitsprocs_need_output_token_ids
+            or self.reasoning_needs_output_token_ids
         )
         output_token_ids = (
             cast(list[list[int]], self.req_output_token_ids)
             if needs_output_token_ids
             else []
         )
+
+        # Qwen3.5: <redacted_thinking> is embedded in the prompt but not at a fixed
+        # offset (depends on chat template). Scan the full prompt; thinking enabled
+        # means OPEN is present and CLOSE is not yet in the prompt (disabled
+        # thinking uses OPEN+CLOSE empty block in prompt).
+        reasoning_open_think_in_prompt: list[bool] = []
+        for i in range(num_reqs):
+            n = int(self.num_prompt_tokens[i])
+            if n <= 0:
+                reasoning_open_think_in_prompt.append(False)
+                continue
+            prompt_ids = self.token_ids_cpu[i, :n].tolist()
+            open_in = OPEN_THINK_TAG in prompt_ids
+            close_in = CLOSE_THINK_TAG in prompt_ids
+            reasoning_open_think_in_prompt.append(open_in and not close_in)
+
+        max_thinking_tokens_list = [
+            int(self.max_thinking_tokens_cpu[i]) for i in range(num_reqs)
+        ]
 
         allowed_token_ids_mask: torch.Tensor | None = None
         if not self.no_allowed_token_ids:
@@ -853,6 +899,8 @@ class InputBatch:
             allowed_token_ids_mask=allowed_token_ids_mask,
             bad_words_token_ids=self.bad_words_token_ids,
             logitsprocs=self.logitsprocs,
+            max_thinking_tokens=max_thinking_tokens_list,
+            reasoning_open_think_in_prompt=reasoning_open_think_in_prompt,
         )
 
     def get_pooling_params(self) -> list[PoolingParams]:

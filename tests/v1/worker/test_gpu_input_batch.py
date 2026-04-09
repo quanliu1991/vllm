@@ -179,6 +179,7 @@ def _construct_expected_sampling_metadata(
         allowed_token_ids_mask=allowed_token_ids_mask,
         bad_words_token_ids=bad_words_token_ids,
         logitsprocs=LogitsProcessors(),
+        max_thinking_tokens=[4096] * len(output_token_ids),
     )
 
 
@@ -310,6 +311,10 @@ def test_sampling_metadata_in_input_batch(device: str, batch_size: int):
     assert (
         expected_sampling_metadata.bad_words_token_ids
         == sampling_metadata.bad_words_token_ids
+    )
+    assert (
+        expected_sampling_metadata.max_thinking_tokens
+        == sampling_metadata.max_thinking_tokens
     )
 
 

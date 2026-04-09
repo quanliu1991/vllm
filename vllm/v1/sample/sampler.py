@@ -291,10 +291,12 @@ class Sampler(nn.Module):
         # Apply bad words exclusion.
         if bad_words_token_ids:
             apply_bad_words(logits, bad_words_token_ids, output_token_ids)
-
-        logits = apply_reasoning_stop_length(logits,
-                                             sampling_metadata.output_token_ids,
-                                             sampling_metadata.max_thinking_tokens)
+        logits = apply_reasoning_stop_length(
+            logits,
+            sampling_metadata.output_token_ids,
+            sampling_metadata.max_thinking_tokens,
+            sampling_metadata.reasoning_open_think_in_prompt,
+        )
 
         # Apply logits processors which can impact greedy sampling.
         for processor in sampling_metadata.logitsprocs.non_argmax_invariant:

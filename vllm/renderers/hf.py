@@ -386,6 +386,16 @@ def _resolve_chat_template_kwargs(chat_template: str) -> Set[str]:
 
 _cached_resolve_chat_template_kwargs = lru_cache(_resolve_chat_template_kwargs)
 
+# Qwen (and similar) chat templates take these via apply_chat_template **kwargs;
+# they may not appear in Jinja `find_undeclared_variables` depending on template
+# revision, so we always allow them when present.
+_KNOWN_EXTRA_CHAT_TEMPLATE_KWARGS = frozenset(
+    {
+        "enable_thinking",
+        "english_thinking",
+    }
+)
+
 
 @lru_cache
 def _get_hf_base_chat_template_params() -> frozenset[str]:
@@ -435,7 +445,9 @@ def resolve_chat_template_kwargs(
     # Allow standard HF parameters even if tokenizer uses **kwargs to receive them
     hf_base_params = _get_hf_base_chat_template_params()
 
-    accept_vars = (fn_kw | template_vars | hf_base_params) - unexpected_vars
+    accept_vars = (
+        fn_kw | template_vars | hf_base_params | _KNOWN_EXTRA_CHAT_TEMPLATE_KWARGS
+    ) - unexpected_vars
     return {k: v for k, v in chat_template_kwargs.items() if k in accept_vars}
 
 

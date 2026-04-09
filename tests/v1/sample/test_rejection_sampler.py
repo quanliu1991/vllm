@@ -126,6 +126,12 @@ def create_sampling_metadata(
         allowed_token_ids_mask=allowed_token_ids_mask,
         bad_words_token_ids={} if bad_words_token_ids is None else bad_words_token_ids,
         logitsprocs=LogitsProcessors(),
+        max_thinking_tokens=[4096]
+        * (
+            len(output_token_ids)
+            if output_token_ids
+            else (temperature.size(0) if temperature is not None else 1)
+        ),
     )
 
 

@@ -161,6 +161,7 @@ def _create_default_sampling_metadata(
         allowed_token_ids_mask=None,
         bad_words_token_ids={},
         logitsprocs=LogitsProcessors(),
+        max_thinking_tokens=[4096] * batch_size,
     )
     return fake_sampling_metadata
 

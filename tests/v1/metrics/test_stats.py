@@ -209,3 +209,20 @@ def test_prompt_token_stats_full_external_transfer_recompute():
     assert stats.local_cache_hit == 0
     assert stats.external_kv_transfer == 1000
     assert stats.recomputed_tokens == 1
+
+
+def test_extract_model_name_strips_short_hex_suffix():
+    """Gateways may send model ids like name-<8 hex>; metrics should aggregate."""
+    ex = IterationStats._extract_model_name_from_request_id
+    rid = "chatcmpl-abc123--Qwen3.5-35B-93ec2f19"
+    assert ex(rid) == "Qwen3.5-35B"
+    rid2 = "cmpl-xyz--Qwen3.5-35B-8163c553"
+    assert ex(rid2) == "Qwen3.5-35B"
+    # 16-char hex suffix still stripped
+    rid3 = "chatcmpl-x--MyModel-0123456789abcdef"
+    assert ex(rid3) == "MyModel"
+
+
+def test_extract_model_name_plain_served_model():
+    ex = IterationStats._extract_model_name_from_request_id
+    assert ex("chatcmpl-u--Qwen3.5-35B") == "Qwen3.5-35B"

@@ -429,7 +429,18 @@ class OpenAIServingChat(OpenAIServing):
 
         reasoning_flag = getattr(request, "reasoning", False) or False
         if not reasoning_flag:
-            request.chat_template_kwargs = {"enable_thinking": False}
+            # Merge defaults; do not replace the whole dict — otherwise explicit
+            # chat_template_kwargs (e.g. enable_thinking / english_thinking) are lost.
+            merged = dict(request.chat_template_kwargs or {})
+            merged.setdefault("enable_thinking", False)
+            request.chat_template_kwargs = merged
+
+        # English + thinking: align sampling with Qwen3.5-style expectations.
+        _ctk = request.chat_template_kwargs or {}
+        if bool(_ctk.get("enable_thinking")) and bool(_ctk.get("english_thinking")):
+            request.temperature = 1.0
+            request.presence_penalty = 1.5
+            request.max_thinking_tokens = 10240
 
         order = extra_dict.get("order", "routine")
 

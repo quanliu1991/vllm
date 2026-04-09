@@ -256,6 +256,14 @@ class ChatCompletionRequest(OpenAIBaseModel):
             "Will be accessible by the chat template."
         ),
     )
+    max_thinking_tokens: int = Field(
+        default=4096,
+        ge=1,
+        description=(
+            "Maximum length of the reasoning (thinking) segment in tokens "
+            "(sampler-side cap; not passed to the chat template)."
+        ),
+    )
     mm_processor_kwargs: dict[str, Any] | None = Field(
         default=None,
         description=("Additional kwargs to pass to the HF processor."),
@@ -337,7 +345,7 @@ class ChatCompletionRequest(OpenAIBaseModel):
         "in output tokens. If such repetition is detected, generation will "
         "be ended early. LLMs can sometimes generate repetitive, unhelpful "
         "token patterns, stopping only when they hit the maximum output length "
-        "(e.g. 'abcdabcdabcd...' or '\emoji \emoji \emoji ...'). This feature "
+        "(e.g. 'abcdabcdabcd...' or '\\emoji \\emoji \\emoji ...'). This feature "
         "can detect such behavior and terminate early, saving time and tokens.",
     )
 
@@ -482,6 +490,7 @@ class ChatCompletionRequest(OpenAIBaseModel):
         if self.kv_transfer_params:
             # Pass in kv_transfer_params via extra_args
             extra_args["kv_transfer_params"] = self.kv_transfer_params
+
         return SamplingParams.from_optional(
             n=self.n,
             presence_penalty=self.presence_penalty,
@@ -512,6 +521,7 @@ class ChatCompletionRequest(OpenAIBaseModel):
             extra_args=extra_args or None,
             skip_clone=True,  # Created fresh per request, safe to skip clone
             repetition_detection=self.repetition_detection,
+            max_thinking_tokens=self.max_thinking_tokens,
         )
 
     @model_validator(mode="before")

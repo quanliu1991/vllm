@@ -717,8 +717,8 @@ if __name__ == "__main__":
     parser = make_arg_parser(parser)
     parser = make_hb_arg_parser(parser)
     args = parser.parse_args()
-    if args.host in ['0.0.0.0', 'localhost']:
-        args.host = get_host_ip()
+    # if args.host in ['0.0.0.0', 'localhost']:
+    #     args.host = get_host_ip()
     validate_parsed_serve_args(args)
 
     if is_runai_obj_uri(args.model) or is_s3(args.lora_models if args.lora_models else ""):

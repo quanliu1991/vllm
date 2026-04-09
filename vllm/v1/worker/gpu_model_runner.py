@@ -5093,6 +5093,8 @@ class GPUModelRunner(
             allowed_token_ids_mask=None,
             bad_words_token_ids={},
             logitsprocs=LogitsProcessors(),
+            max_thinking_tokens=[envs.VLLM_MAX_THINKING_TOKENS] * num_reqs,
+            reasoning_open_think_in_prompt=None,
         )
         try:
             sampler_output = self.sampler(

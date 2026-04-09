@@ -1636,6 +1636,9 @@ environment_variables: dict[str, Callable[[], Any]] = {
     "VLLM_ELASTIC_EP_DRAIN_REQUESTS": lambda: bool(
         int(os.getenv("VLLM_ELASTIC_EP_DRAIN_REQUESTS", "0"))
     ),
+    # Default cap on reasoning (thinking) segment length in tokens when
+    # SamplingParams.max_thinking_tokens is unset (Qwen-style apply_reasoning_stop_length).
+    "VLLM_MAX_THINKING_TOKENS": lambda: int(os.getenv("VLLM_MAX_THINKING_TOKENS", "4096")),
 }
 
 
