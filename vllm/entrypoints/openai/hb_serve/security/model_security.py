@@ -29,10 +29,14 @@ def model_encrpt(model_path, output_path):
         layer_id = extract_numbers(layer_name)
         if layer_id is not None:
             layer_ids.append(layer_id)
-        if layer_id == 6:
+        if layer_id == 3:
             sublayer_number_id_name_map[sub_layer_id]=layer_name.split(str(layer_id))[-1]
             sub_layer_id += 1
-    sublayer_number = layer_ids.count(0)
+    decrypt_model_type = os.getenv("DECRYPT_MODEL_TYPE")    #"qwen3_5_moe" #os.getenv("DECRYPT_MODEL_TYPE")
+    if decrypt_model_type == "qwen3_5_moe":
+        sublayer_number = 9
+    else:
+        sublayer_number = layer_ids.count(0)
     layer_number = max(layer_ids) + 1
 
 
@@ -97,8 +101,8 @@ def model_decrypt(model_path, output_path):
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(
         description="OpenAI-Compatible RESTful API server.")
-    parser.add_argument("--model", type=str, default="/workspace/llm_models/HengNao-2_5-72b-chat-gptq-int4", help="model path")
-    parser.add_argument("--output-model", type=str, default="/workspace/llm_models/saved_model/HengNao-2_5-72b-chat-gptq-int4", help="output model path")
+    parser.add_argument("--model", type=str, default="/workspace/llm_models/Qwen3.5-35B-A3B", help="model path")
+    parser.add_argument("--output-model", type=str, default="/workspace/llm_models/saved_model/HengNao-3_5-35ba3b-chat", help="output model path")
     parser.add_argument("--decrypt", action="store_true", help="output model path")
     args = parser.parse_args()
     if args.decrypt:

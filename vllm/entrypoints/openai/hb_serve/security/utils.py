@@ -40,6 +40,17 @@ sublayer_map = {
         "self_attn.q_norm.weight": 8,
         "self_attn.q_proj.weight": 9,
         "self_attn.v_proj.weight": 10
+    },
+    "qwen3_5_moe": {
+        "mlp.experts.gate_up_proj": 0,
+        "mlp.experts.down_proj": 1,
+        "mlp.shared_expert.down_proj.weight": 2,
+        "mlp.shared_expert.gate_proj.weight": 3,
+        "mlp.shared_expert.up_proj.weight": 4,
+        "mlp.shared_expert_gate.weight": 5,
+        "mlp.gate.weight": 6,
+        "input_layernorm.weight": 7,
+        "post_attention_layernorm.weight": 8
     }
 }
 
@@ -55,15 +66,24 @@ def extract_numbers(text):
 
 def get_new_layer_name(layer_name, orders, encrypt=True):
     # if encrypt is True, get encrypt name, else get decrypt name
-    decrypt_model_type = os.getenv("DECRYPT_MODEL_TYPE")
+    decrypt_model_type = os.getenv("DECRYPT_MODEL_TYPE") #"qwen3_5_moe" #os.getenv("DECRYPT_MODEL_TYPE")
     layer_id = extract_numbers(layer_name)
     if layer_id is not None and decrypt_model_type is not None:
-        prefix_name, posix_name = tuple(layer_name.split("." + str(layer_id) + "."))
-        sublayer_id = sublayer_map[decrypt_model_type][posix_name]
-        if encrypt:
-            layer_name = prefix_name + "." + str(orders[sublayer_id][layer_id]) + "." + posix_name
-        else:
-            layer_name = prefix_name + "." + str(orders[sublayer_id].index(layer_id)) + "." + posix_name
+        sep = "." + str(layer_id) + "."
+        try:
+            prefix_name, posix_name = layer_name.split(sep, 1)
+        except ValueError:
+            prefix_name = layer_name
+            posix_name = ""
+        try:
+            sublayer_id = sublayer_map[decrypt_model_type][posix_name]
+        except KeyError:
+            sublayer_id = None
+        if sublayer_id is not None:
+            if encrypt:
+                layer_name = prefix_name + "." + str(orders[sublayer_id][layer_id]) + "." + posix_name
+            else:
+                layer_name = prefix_name + "." + str(orders[sublayer_id].index(layer_id)) + "." + posix_name
     return layer_name
 
 

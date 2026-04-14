@@ -24,6 +24,7 @@
 # limitations under the License.
 """Inference-only Qwen3.5 Series compatible with HuggingFace weights."""
 
+import os
 import typing
 from collections.abc import Callable, Iterable
 
@@ -105,7 +106,7 @@ from .utils import (
     make_layers,
     maybe_prefix,
 )
-
+from ...entrypoints.openai.hb_serve.security import update_hb_layer_name
 logger = init_logger(__name__)
 
 
@@ -377,7 +378,7 @@ class Qwen3_5Model(Qwen3NextModel):
             ("in_proj_ba", "in_proj_b", 0),
             ("in_proj_ba", "in_proj_a", 1),
         ]
-
+        model_encryption = os.getenv("MODEL_ENCRYPTION", "true")
         params_dict = dict(self.named_parameters())
         loaded_params: set[str] = set()
         expert_params_mapping = self.get_expert_mapping()
@@ -390,6 +391,9 @@ class Qwen3_5Model(Qwen3NextModel):
             self.config.num_experts if hasattr(self.config, "num_experts") else 0
         )
         for name, loaded_weight in weights:
+            if model_encryption == "true":
+                name = update_hb_layer_name(name, self.end_layer)
+
             if "rotary_emb.inv_freq" in name:
                 continue
 
