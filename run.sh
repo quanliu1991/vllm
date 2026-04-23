@@ -9,13 +9,13 @@ fi
 if [ -n "$PORT" ]; then
     port=$PORT
 else
-    port=30011
+    port34001
 fi
 
 if [ -n "$MODEL" ]; then
     model=$MODEL
 else
-    model="/workspace/llm_models_one_piece"
+    model="/workspace/HengNao-3_5-35ba3b-chat"
 fi
 
 if [ -n "$ALLOW_LORA" ]; then
@@ -54,28 +54,29 @@ else
     consul_token=
 fi
 
+# Space-separated list for --served-model-name (multiple aliases).
 if [ -n "$SERVED_MODEL_NAME" ]; then
     served_model_name=$SERVED_MODEL_NAME
 else
-    served_model_name=
+    served_model_name="HengNao-r1 HengNao-v4 HengNao-v1"
 fi
 
 if [ -n "$VERSION" ]; then
     version=$VERSION
 else
-    version=
+    version=v4.1.0
 fi
 
 if [ -n "$GPU_MEMORY_UTILIZATION" ]; then
     gpu_memory_utilization=$GPU_MEMORY_UTILIZATION
 else
-    gpu_memory_utilization=
+    gpu_memory_utilization="0.97"
 fi
 
 if [ -n "$TENSOR_PARALLEL_SIZE" ]; then
     tensor_parallel_size=$TENSOR_PARALLEL_SIZE
 else
-    tensor_parallel_size=
+    tensor_parallel_size="2"
 fi
 
 if [ -n "$QUANTIZATION" ]; then
@@ -87,7 +88,7 @@ fi
 if [ -n "$MAX_MODEL_LEN" ]; then
     max_model_len=$MAX_MODEL_LEN
 else
-    max_model_len=
+    max_model_len="262144"
 fi
 
 if [ -n "$KV_CACHE_DTYPE" ]; then
@@ -115,10 +116,11 @@ else
 fi
 
 
-if [ -n "$ENABLE_PREFIX_CACHING" ]; then
-    enable_prefix_caching=" "
-else
+# Match launch.json: prefix caching on unless DISABLE_PREFIX_CACHING is set.
+if [ -n "${DISABLE_PREFIX_CACHING:-}" ]; then
     enable_prefix_caching=
+else
+    enable_prefix_caching=" "
 fi
 
 if [ -n "$DISABLE_CUSTOM_ALL_REDUCE" ]; then
@@ -144,13 +146,13 @@ fi
 if [ -n "$SSL_KEYFILE" ]; then
     ssl_keyfile=$SSL_KEYFILE
 else
-    ssl_keyfile=
+    ssl_keyfile="/workspace/hb-serve/utils/private.key"
 fi
 
 if [ -n "$SSL_CERTIFILE" ]; then
     ssl_certifile=$SSL_CERTIFILE
 else
-    ssl_certifile=
+    ssl_certifile="/workspace/hb-serve/utils/certificate.crt"
 fi
 
 if [ -n "$SSL_CA_CERTS" ]; then
@@ -180,7 +182,7 @@ fi
 if [ -n "$OTLP_TRACES_ENDPOINT" ]; then
     otlp_traces_endpoint=$OTLP_TRACES_ENDPOINT
 else
-    otlp_traces_endpoint=
+    otlp_traces_endpoint="hn-adot-collector:4317"
 fi
 
 if [ -n "$ENABLE_TOOLS" ]; then
@@ -192,7 +194,19 @@ fi
 if [ -n "$TOOL_CALL_PARSER" ]; then
     tool_call_parser=$TOOL_CALL_PARSER
 else
-    tool_call_parser="hermes"
+    tool_call_parser="qwen3_coder"
+fi
+
+if [ -n "$REASONING_PARSER" ]; then
+    reasoning_parser=$REASONING_PARSER
+else
+    reasoning_parser=
+fi
+
+if [ -n "$CHAT_TEMPLATE" ]; then
+    chat_template=$CHAT_TEMPLATE
+else
+    chat_template="/workspace/hb-serve/utils/chat_template.jinja"
 fi
 
 if [ -n "$DISABLE_CPU_OFFLOAD" ]; then
@@ -221,7 +235,7 @@ declare -A params=(
   ["--consul-port"]="$consul_port"
   ["--consul-token"]="$consul_token"
   ["--version"]="$version"
-  ["--served-model"]="$served_model_name"
+  ["--served-model-name"]="$served_model_name"
   ["--enable-prefix-caching"]="$enable_prefix_caching"
   ["--disable-custom-all-reduce"]="$disable_custom_all_reduce"
   ["--max-loras"]="$max_loras"
@@ -237,23 +251,31 @@ declare -A params=(
   ["--otlp-traces-endpoint"]="$otlp_traces_endpoint"
   ["--enable-auto-tool-choice"]="$enable_auto_tool_choice"
   ["--tool-call-parser"]="$tool_call_parser"
+  ["--chat-template"]="$chat_template"
   ["--kv-transfer-config"]=$kv_transfer_config
+  
 )
 
 declare -A reasoning_parser_map=(
   ["HengNao-3_0-32b-chat"]="qwen3"
   ["HengNao-3_0-4b-chat"]="qwen3"
   ["HengNao-r1-32b"]="deepseek_r1"
-  ["HengNao-3_5-27b-chat"]="qwen3"
-  ["HengNao-3_5-35ba3b-chat"]="qwen3"
+  ["HengNao-3_5-27b-chat"]="qwen3.5"
+  ["HengNao-3_5-35ba3b-chat"]="qwen3.5"
+  ["HengNao-3_5-35ba3b-gptq-int4-chat"]="qwen3.5"
+  ["Qwen3.5-35B-A3B"]="qwen3.5"
+  ["Qwen3.5-27B"]="qwen3.5"
 )
 model_name=${model##*/}
-if [[ -n "${model_name}" && -n "${reasoning_parser_map[$model_name]}" ]]; then
+if [[ -n "$reasoning_parser" ]]; then
+  params["--reasoning-parser"]="$reasoning_parser"
+elif [[ -n "${model_name}" && -n "${reasoning_parser_map[$model_name]}" ]]; then
   params["--reasoning-parser"]="${reasoning_parser_map[$model_name]}"
 fi
 
+export USE_PRIORITY="${USE_PRIORITY:-true}"
 
-python_cmd="python3 -m vllm.entrypoints.openai.api_server --trust-remote-code --disable-cascade-attn "
+python_cmd="python3 -m vllm.entrypoints.openai.api_server --trust-remote-code "
 
 for key in ${!params[@]}; do
   value=${params[$key]}
@@ -261,4 +283,5 @@ for key in ${!params[@]}; do
     python_cmd+=" $key $value"
   fi
 done
+
 eval $python_cmd
