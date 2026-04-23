@@ -1,0 +1,103 @@
+# ============================================
+# 基础配置
+# ============================================
+type: container
+version: v4.0.0
+name: hn-chat-v4
+namespace: model
+network: host # hn-network
+restart: always
+user: root
+
+# ============================================
+# 镜像配置
+# ============================================
+image: docker.das-security.cn/hb/hb-serve-chat-gpu:v4.0.0-o1
+imageDir: ./images/hb-serve-chat.tar
+imageLoadOrPullPolicy: IfNotPresent
+
+# ============================================
+# 资源要求
+# ============================================
+require:
+  gpus:
+    device: ["0", "1", "2", "3", "4", "5", "6", "7"]
+
+# ============================================
+# 卷挂载
+# ============================================
+volumes:
+  - "/etc/localtime:/etc/localtime"
+  - "./logs/chat/:/workspace/logs"
+  - /home/qjsys/llm_models/Qwen3.5-27B:/workspace/HengNao-3_5-27b-chat
+  # - ./keylist/key-5years:/opt/runtime_data
+
+# ============================================
+# 启动命令
+# ============================================
+command: ["bash", "/workspace/hb-serve/run.sh"]
+
+# ============================================
+# 环境变量配置
+# ============================================
+environment:
+  # 模型配置
+  - MODEL=/workspace/HengNao-3_5-27b-chat   # s3://llm-models/HengNao-3-32b-chat
+  - DTYPE=float16
+  - MAX_MODEL_LEN=262144
+  - TOKEN_POOL_SIZE=20000
+
+  # GPU 和性能优化
+  - GPU_MEMORY_UTILIZATION=0.085
+  - TENSOR_PARALLEL_SIZE=8
+  - DISABLE_CPU_OFFLOAD=true
+  - ENABLE_PREFIX_CACHING=true
+  - NCCL_P2P_LEVEL=4
+  - NVIDIA_DISABLE_REQUIRE=1
+
+  # 网络和服务配置
+  - PORT=34001
+  - SERVED_MODEL_NAME=HengNao-r1 HengNao-v4
+  - VERSION=v4.0.0
+
+  # SSL 配置
+  - SSL_KEYFILE=/workspace/hb-serve/utils/private.key
+  - SSL_CERTIFILE=/workspace/hb-serve/utils/certificate.crt
+
+  # Consul 配置
+  - ALLOW_CONSUL=true
+  - CONSUL_HOST=10.20.152.74
+  - CONSUL_PORT=8500
+  - CONSUL_TOKEN=d9295a36-9f55-4580-b22d-71cfa5837f76
+
+  # MinIO 配置
+  - MINIO_ENDPOINT=hn-minio:9000
+  - MINIO_ACCESS_KEY=admin
+  - MINIO_SECRET_KEY=tYqV9s#bt3ADrMy
+
+  # 日志和追踪
+  - VLLM_CONFIGURE_LOGGING=0
+#  - OTLP_TRACES_ENDPOINT=hn-adot-collector:4317
+
+  # vLLM 特殊配置
+  - DISABLE_CUSTOM_ALL_REDUCE=true
+
+# ============================================
+# Consul 动态配置
+# ============================================
+config:
+  type: consul
+  policy: overwrite
+  key: hb-serve-chat/configs/prod.yaml
+  content: |
+    hot_swaps:
+      - path: "logger.level"
+        validate: "oneof=INFO|WARN|ERROR"
+        desc: "日志等级"
+        type: "string"
+      - path: "use_priority"
+        desc: "优先级队列开关"
+        type: "bool"
+    logger:
+      level: "INFO"
+      use_priority: true

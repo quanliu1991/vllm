@@ -1,0 +1,56 @@
+FROM docker.das-security.cn/hb/vllm-openai:v0.17.0
+WORKDIR /workspace
+RUN pip install --no-cache-dir \
+    shortuuid==1.0.11 \
+    python-consul2==0.1.5 \
+    APScheduler==3.10.4 \
+    async_lru \
+    s3fs \
+    minio \
+    interegular==0.3.3 \
+    pyarmor==9.1.7 \
+    opentelemetry-sdk==1.35.0 \
+    opentelemetry-api==1.35.0 \
+    opentelemetry-exporter-otlp==1.35.0 \
+    opentelemetry-semantic-conventions-ai==0.4.11 \
+    opentelemetry-instrumentation-fastapi==0.56b0 \
+    opentelemetry-propagator-b3==1.35.0 \
+    -i https://pypi.tuna.tsinghua.edu.cn/simple
+
+
+COPY ./vllm/pyarmor-ci-4937.zip ./
+COPY ./vllm/vllm  /workspace/source/vllm
+COPY ./vllm/vllm /usr/local/lib/python3.12/dist-packages/vllm
+
+RUN pyarmor reg /workspace/pyarmor-ci-4937.zip
+RUN mkdir -p /workspace/dist
+RUN pyarmor gen --outer --obf-code 0 -O /workspace/dist -r /workspace/source/vllm/entrypoints/openai/hb_serve
+
+RUN rm -rf /usr/local/lib/python3.12/dist-packages/vllm/entrypoints/openai/hb_serve
+RUN mv /workspace/dist/hb_serve /usr/local/lib/python3.12/dist-packages/vllm/entrypoints/openai
+RUN mv /workspace/dist/pyarmor_runtime_004937 /usr/local/lib/python3.12/dist-packages
+RUN rm -rf /workspace/dist
+RUN rm -rf /workspace/source
+RUN rm -rf /workspace/pyarmor-ci-4937.zip
+
+COPY interegular/interegular /usr/local/lib/python3.12/dist-packages/interegular
+
+RUN mkdir /workspace/hb-serve
+COPY ./vllm/run.sh  /workspace/hb-serve/run.sh
+COPY ./vllm/configs /workspace/hb-serve/utils
+
+RUN useradd hn-user -d /root -u 6666
+RUN mkdir logs tmp
+RUN chown -R hn-user.hn-user logs tmp
+RUN chmod -R 777 /root
+RUN chmod 777 /workspace/hb-serve/run.sh
+RUN rm -rf /root/.cache/uv
+USER hn-user
+
+ENV HF_MODULES_CACHE=/workspace/tmp
+ENV NUMBA_CACHE_DIR=/workspace/tmp
+ENV OUTLINES_CACHE_DIR=/workspace/tmp
+ENV PYARMOR_RKEY=/opt/runtime_data
+
+
+ENTRYPOINT [""]
