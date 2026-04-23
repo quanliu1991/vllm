@@ -7,13 +7,8 @@ RUN pip install --no-cache-dir \
     async_lru \
     s3fs \
     minio \
-    lmcache==0.3.3 \
-    -i https://pypi.tuna.tsinghua.edu.cn/simple
-
-RUN pip install interegular==0.3.3 -i https://pypi.tuna.tsinghua.edu.cn/simple
-
-RUN pip install pyarmor==9.1.7 -i https://pypi.tuna.tsinghua.edu.cn/simple
-RUN pip install \
+    interegular==0.3.3 \
+    pyarmor==9.1.7 \
     opentelemetry-sdk==1.35.0 \
     opentelemetry-api==1.35.0 \
     opentelemetry-exporter-otlp==1.35.0 \
@@ -22,10 +17,8 @@ RUN pip install \
     opentelemetry-propagator-b3==1.35.0 \
     -i https://pypi.tuna.tsinghua.edu.cn/simple
 
-#COPY ./vllm/outlines_core-0.2.10-cp312-cp312-manylinux_2_34_x86_64.whl ./
-#RUN pip install outlines_core-0.2.10-cp312-cp312-manylinux_2_34_x86_64.whl  --force-reinstall
 
-COPY ./pyarmor-ci-4937.zip ./
+COPY ./vllm/pyarmor-ci-4937.zip ./
 COPY ./vllm/vllm  /workspace/source/vllm
 COPY ./vllm/vllm /usr/local/lib/python3.12/dist-packages/vllm
 
@@ -40,11 +33,11 @@ RUN rm -rf /workspace/dist
 RUN rm -rf /workspace/source
 RUN rm -rf /workspace/pyarmor-ci-4937.zip
 
-#COPY interegular/interegular /usr/local/lib/python3.12/dist-packages/interegular
+COPY interegular/interegular /usr/local/lib/python3.12/dist-packages/interegular
 
 RUN mkdir /workspace/hb-serve
-COPY ./run.sh  /workspace/hb-serve/run.sh
-COPY ./configs /workspace/hb-serve/utils
+COPY ./vllm/run.sh  /workspace/hb-serve/run.sh
+COPY ./vllm/configs /workspace/hb-serve/utils
 
 RUN useradd hn-user -d /root -u 6666
 RUN mkdir logs tmp
