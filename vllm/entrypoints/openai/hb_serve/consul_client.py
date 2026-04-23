@@ -11,6 +11,7 @@ from vllm.entrypoints.openai.hb_serve.consul_hot_swaps import watch_config_serve
 from vllm.entrypoints.openai.hb_serve.hot_swaps_settings import set_global_swaps
 from vllm.entrypoints.openai.hb_serve.logger import SingleLogger, ContextualLoggerAdapter, enum_to_json, LogType, Statu
 from vllm import __version__ as vllm_version
+from vllm.entrypoints.openai.hb_serve.const import get_host_ip
 
 
 logger = SingleLogger.get_logger()
@@ -92,7 +93,17 @@ class ConsulList:
             self.consul_port_list = args.consul_port.split(',')
             self.consul_token = args.consul_token
             assert len(self.consul_port_list) == len(self.consul_host_list)
-            self.host, self.port = args.host, args.port
+            if os.getenv("HOST_IP_FOR_CONSUL"):
+                self.host = os.getenv("HOST_IP_FOR_CONSUL") # 用于consul注册服务时，使用固定的ip地址
+            else:
+                if args.host in ['0.0.0.0', 'localhost']:
+                    self.host = get_host_ip()
+                else:
+                    self.host = args.host
+            if os.getenv("PORT_FOR_CONSUL"):
+                self.port = os.getenv("PORT_FOR_CONSUL") # 用于consul注册服务时，使用固定的端口
+            else:
+                self.port = args.port
             self.reasoning = "true" if args.reasoning_parser else "false"
 
             # 当开启consul时，修改热更新值
@@ -120,8 +131,7 @@ class ConsulList:
 
                 for consul_host, consul_port in zip(self.consul_host_list, self.consul_port_list):
                     consul = ConsulClient(consul_host, consul_port, self.consul_token)
-                    # consul.register_service(self.host, self.port, meta=meta)
-                    consul.register_service("10.20.152.74", 8302, meta=meta)
+                    consul.register_service(self.host, self.port, meta=meta)
                     self.consul_list.append(consul)
                     contextual_logger.info(
                         f"register service {self.host}:{self.port} meta={meta}, status: {Statu.SUCCESS}",
@@ -146,8 +156,7 @@ class ConsulList:
                         lora="1" if self.allow_lora else "0"
                         ).dict(exclude_unset=True)
             for c in self.consul_list:
-                # c.register_service(self.host, self.port, meta=meta)
-                c.register_service("10.20.152.74", 8302, meta=meta)
+                c.register_service(self.host, self.port, meta=meta)
                 contextual_logger.info(
                     f"update consul service {self.host}:{self.port} meta={meta}, status: {Statu.SUCCESS}",
                     extra={'category': enum_to_json(LogType.SERVICE_DISCOVERY)})

@@ -9,4 +9,6 @@ model_map = {
     "HengNao-3_0-32b-chat": "hb_3_0_32",
     "HengNao-3_0-4b-chat": "hb_3_0_4",
     "HengNao-3_5-35ba3b-chat": "hb_qwen3_5_35b",
+    "HengNao-3_5-35ba3b-int4-chat": "hb_qwen3_5_35b_4",
+    "Qwen3.5-35B-A3B-GPTQ-INT4": "hb_qwen3_5_35b_4",
 }
