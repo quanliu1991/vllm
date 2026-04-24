@@ -9,7 +9,7 @@ fi
 if [ -n "$PORT" ]; then
     port=$PORT
 else
-    port34001
+    port=34001
 fi
 
 if [ -n "$MODEL" ]; then
@@ -275,7 +275,7 @@ fi
 
 export USE_PRIORITY="${USE_PRIORITY:-true}"
 
-python_cmd="python3 -m vllm.entrypoints.openai.api_server --trust-remote-code "
+python_cmd="python3 -m vllm.entrypoints.openai.api_server --trust-remote-code --enable-force-include-usage "
 
 for key in ${!params[@]}; do
   value=${params[$key]}
