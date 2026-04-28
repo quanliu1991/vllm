@@ -185,16 +185,16 @@ else
     otlp_traces_endpoint="hn-adot-collector:4317"
 fi
 
-if [ -n "$ENABLE_TOOLS" ]; then
-    enable_auto_tool_choice=$ENABLE_TOOLS
+if [ -n "$DISABLE_TOOLS" ]; then
+    enable_auto_tool_choice=
+    tool_call_parser=
 else
     enable_auto_tool_choice=" "
-fi
-
-if [ -n "$TOOL_CALL_PARSER" ]; then
-    tool_call_parser=$TOOL_CALL_PARSER
-else
-    tool_call_parser="qwen3_coder"
+    if [ -n "$TOOL_CALL_PARSER" ]; then
+        tool_call_parser=$TOOL_CALL_PARSER
+    else
+        tool_call_parser="qwen3_coder"
+    fi
 fi
 
 if [ -n "$REASONING_PARSER" ]; then
