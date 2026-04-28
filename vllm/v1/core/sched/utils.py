@@ -101,7 +101,7 @@ def check_stop(request: Request, max_model_len: int) -> bool:
     is_thinking = False
     n_prompt = request.num_prompt_tokens
     # if n_prompt < len(request.all_token_ids) and request.all_token_ids[n_prompt] == OPEN_THINK_TAG:
-    if request.all_token_ids[request.num_prompt_tokens-2] == OPEN_THINK_TAG: # -2 is <think> 被拼接到prompt中
+    if OPEN_THINK_TAG in request.all_token_ids[: request.num_prompt_tokens] and CLOSE_THINK_TAG not in request.all_token_ids[: request.num_prompt_tokens]: #  <think> 被拼接到prompt中
         is_thinking = True
     if is_thinking:
         if CLOSE_THINK_TAG in request.all_token_ids[n_prompt:]:
