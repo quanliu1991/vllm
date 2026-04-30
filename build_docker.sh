@@ -1,17 +1,28 @@
-rm -rf outlines || echo "rm outlines fail"
-rm -rf interegular || echo "rm interegular fail"
-rm -rf vllm-ascend || echo "rm interegular fail"
-rm -rf hb-serve-chat-npu_R25C20-arm-o1.tar || echo "rm hb-serve-chat-npu_R25C20-arm-o1.tar fail"
-docker rmi -f docker.das-security.cn/hb/hb-serve-chat-npu:R25C20-arm-o1 || echo "docker rmi fail"
+#!/bin/bash
+set -e
 
-git clone http://gitlab.info.dbappsecurity.com.cn/da.chen/eight-horses.git
+IMAGE_NAME="${IMAGE_NAME:-docker.das-security.cn/hb/hb-serve-chat-npu}"
+IMAGE_TAG="${IMAGE_TAG:-R26C10-v4.1.0-o1}"
+BUILD_CONTEXT="${BUILD_CONTEXT:-.}"
 
-cd eight-horses
-git checkout vllm-0.8.5.post1-dev
-cd ..
-mv eight-horses vllm
+echo "Building NPU Docker image..."
+echo "Image: ${IMAGE_NAME}:${IMAGE_TAG}"
+echo "Dockerfile: Dockerfile.npu"
+echo "Build context: ${BUILD_CONTEXT}"
 
+docker build -f Dockerfile.npu -t "${IMAGE_NAME}:${IMAGE_TAG}" "${BUILD_CONTEXT}"
 
-docker build -f vllm/Dockerfile.gpu -t docker.das-security.cn/hb/hb-serve-chat-gpu:R26C10-v4.1.0-o1 .
-#docker save -o hb-serve-chat-npu_R25C20-arm-o1.tar docker.das-security.cn/hb/hb-serve-chat-npu:R25C20-arm-o4
-#docker push docker.das-security.cn/hb/hb-serve-chat-npu:R25C20-arm-o4
+echo "Build complete: ${IMAGE_NAME}:${IMAGE_TAG}"
+echo ""
+echo "Usage examples:"
+echo "  # Start both LLM and embedding (default)"
+echo "  docker run -d --name vllm-npu ${IMAGE_NAME}:${IMAGE_TAG}"
+echo ""
+echo "  # Start only LLM service"
+echo "  docker run -d --name vllm-npu -e START_LLM=true -e START_EMBEDDING=false ${IMAGE_NAME}:${IMAGE_TAG}"
+echo ""
+echo "  # Start only embedding service"
+echo "  docker run -d --name vllm-npu -e START_LLM=false -e START_EMBEDDING=true ${IMAGE_NAME}:${IMAGE_TAG}"
+echo ""
+echo "  # Start both services explicitly"
+echo "  docker run -d --name vllm-npu -e START_LLM=true -e START_EMBEDDING=true ${IMAGE_NAME}:${IMAGE_TAG}"

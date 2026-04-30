@@ -274,13 +274,13 @@ def launch_model(args):
     if os.getenv("ALLOW_CONSUL","false") == "true":
         register_service_to_consul(host, port, device)
 
-    cert_file =  os.getenv("SSL_CERTIFILE", "/home/models/configs/certificate.crt").lower()
-    key_file =  os.getenv("SSL_KEYFILE", "/home/models/configs/private.key").lower()
+    cert_file = os.getenv("SSL_CERTIFILE", "/home/models/configs/certificate.crt")
+    key_file = os.getenv("SSL_KEYFILE", "/home/models/configs/private.key")
 
     if not os.path.isfile(cert_file) or not os.path.isfile(key_file):
         cert_file = None
         key_file = None
-        print(f"http run")
+        print("http run")
 
 
     uvicorn.run(app=app, host=host, port=port,
