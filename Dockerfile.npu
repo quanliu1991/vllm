@@ -1,4 +1,4 @@
-FROM docker.das-security.cn/hb/vllm-openai:v0.17.0
+FROM quay.io/ascend/vllm-ascend:v0.17.0rc1-openeuler
 WORKDIR /workspace
 RUN pip install --no-cache-dir \
     shortuuid==1.0.11 \
@@ -45,6 +45,17 @@ RUN chown -R hn-user.hn-user logs tmp
 RUN chmod -R 777 /root
 RUN chmod 777 /workspace/hb-serve/run.sh
 RUN rm -rf /root/.cache/uv
+
+# --- embedding service ---
+RUN pip install --no-cache-dir supervisor && \
+    mkdir -p /workspace/services/embedding /workspace/logs /etc/supervisor
+COPY services/embedding/server.py /workspace/services/embedding/server.py
+COPY services/embedding/run_embed.sh /workspace/services/embedding/run_embed.sh
+COPY services/supervisor/supervisord.conf /etc/supervisor/supervisord.conf
+RUN chmod +x /workspace/services/embedding/run_embed.sh && \
+    chown -R hn-user.hn-user /workspace/services /workspace/logs /etc/supervisor
+# -------------------------
+
 USER hn-user
 
 ENV HF_MODULES_CACHE=/workspace/tmp
@@ -53,4 +64,4 @@ ENV OUTLINES_CACHE_DIR=/workspace/tmp
 ENV PYARMOR_RKEY=/opt/runtime_data
 
 
-ENTRYPOINT [""]
+ENTRYPOINT ["/usr/bin/tini", "--", "supervisord", "-c", "/etc/supervisor/supervisord.conf"]
