@@ -1639,6 +1639,12 @@ environment_variables: dict[str, Callable[[], Any]] = {
     # Default cap on reasoning (thinking) segment length in tokens when
     # SamplingParams.max_thinking_tokens is unset (Qwen-style apply_reasoning_stop_length).
     "VLLM_MAX_THINKING_TOKENS": lambda: int(os.getenv("VLLM_MAX_THINKING_TOKENS", "4096")),
+    # Token ID for the opening think tag (e.g. <redacted_thinking>).
+    # Default: 248068 (Qwen3.5).
+    "VLLM_OPEN_THINK_TAG": lambda: int(os.getenv("VLLM_OPEN_THINK_TAG", "248068")),
+    # Token ID for the closing think tag (e.g. end of <redacted_thinking>).
+    # Default: 248069 (Qwen3.5).
+    "VLLM_CLOSE_THINK_TAG": lambda: int(os.getenv("VLLM_CLOSE_THINK_TAG", "248069")),
 }
 
 

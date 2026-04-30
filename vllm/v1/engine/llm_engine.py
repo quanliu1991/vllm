@@ -107,6 +107,14 @@ class LLMEngine:
             tracing_enabled=tracing_endpoint is not None,
         )
 
+        # Resolve think tag token IDs from the tokenizer (overriding env defaults)
+        if renderer.tokenizer is not None:
+            from vllm.v1.sample.ops.reasoning_sampler import (
+                resolve_think_tags,
+            )
+
+            resolve_think_tags(renderer.tokenizer)
+
         # EngineCore (gets EngineCoreRequests and gives EngineCoreOutputs)
         self.engine_core = EngineCoreClient.make_client(
             multiprocess_mode=multiprocess_mode,

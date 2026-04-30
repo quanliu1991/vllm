@@ -1,14 +1,11 @@
 # SPDX-License-Identifier: Apache-2.0
 # SPDX-FileCopyrightText: Copyright contributors to the vLLM project
 import contextlib
-import os
 from collections.abc import Sequence
 
 from vllm.sampling_params import RepetitionDetectionParams
 from vllm.v1.request import Request, RequestStatus
-
-OPEN_THINK_TAG = 248068 # Qwen3.5 int(os.getenv("OPEN_THINK_TAG", "151667")) Qwen3
-CLOSE_THINK_TAG = 248069 # Qwen3.5 int(os.getenv("CLOSE_THINK_TAG", "151668")) Qwen3
+from vllm.v1.sample.ops.reasoning_sampler import CLOSE_THINK_TAG, OPEN_THINK_TAG
 
 
 

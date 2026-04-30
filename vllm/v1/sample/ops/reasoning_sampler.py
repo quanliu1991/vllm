@@ -1,10 +1,66 @@
 # SPDX-License-Identifier: Apache-2.0
 # SPDX-FileCopyrightText: Copyright contributors to the vLLM project
 
+import os
+from typing import TYPE_CHECKING
+
 import torch
 
-OPEN_THINK_TAG = 248068  # Qwen3.5 int(os.getenv("OPEN_THINK_TAG", "151667")) Qwen3
-CLOSE_THINK_TAG = 248069  # Qwen3.5 int(os.getenv("CLOSE_THINK_TAG", "151668")) Qwen3
+from vllm import envs
+
+if TYPE_CHECKING:
+    from vllm.tokenizers import TokenizerLike
+
+# Mutable module-level state; populated by resolve_think_tags() or
+# left at the env-var defaults (Qwen3.5 token IDs).
+OPEN_THINK_TAG: int = envs.VLLM_OPEN_THINK_TAG
+CLOSE_THINK_TAG: int = envs.VLLM_CLOSE_THINK_TAG
+
+# Canonical think-tag strings used by Qwen-family models.
+_THINK_START_STR = "<think>"
+_THINK_END_STR = "</think>"
+
+
+def resolve_think_tags(tokenizer: "TokenizerLike") -> None:
+    """Resolve OPEN/CLOSE think tag token IDs from the tokenizer's vocabulary.
+
+    This should be called once during engine initialization.  Token IDs
+    are looked up in the tokenizer vocab; if either tag is absent the
+    environment-variable defaults (``envs.VLLM_OPEN_THINK_TAG`` /
+    ``envs.VLLM_CLOSE_THINK_TAG``) are kept as fallback.
+
+    Parameters
+    ----------
+    tokenizer :
+        The model tokenizer.  ``get_vocab()`` is used to look up the
+        special thinking tokens.
+    """
+    global OPEN_THINK_TAG, CLOSE_THINK_TAG
+
+    vocab = tokenizer.get_vocab()
+
+    # Try common think-tag string variants found in Qwen-family tokenizers.
+    open_candidates = [
+        "<think>",
+    ]
+    close_candidates = [
+        "</think>",
+    ]
+
+    for candidate in open_candidates:
+        if candidate in vocab:
+            OPEN_THINK_TAG = vocab[candidate]
+            break
+
+    for candidate in close_candidates:
+        if candidate in vocab:
+            CLOSE_THINK_TAG = vocab[candidate]
+            break
+
+    # Also set env vars so child processes (e.g. EngineCoreProc) inherit
+    # the resolved token IDs.
+    os.environ["VLLM_OPEN_THINK_TAG"] = str(OPEN_THINK_TAG)
+    os.environ["VLLM_CLOSE_THINK_TAG"] = str(CLOSE_THINK_TAG)
 
 
 def apply_reasoning_stop_length(

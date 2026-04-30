@@ -16,16 +16,13 @@ from vllm.tokenizers.detokenizer_utils import (
 )
 from vllm.utils import length_from_prompt_token_ids_or_embeds
 from vllm.v1.engine import EngineCoreRequest
+from vllm.v1.sample.ops.reasoning_sampler import CLOSE_THINK_TAG, OPEN_THINK_TAG
 
 logger = init_logger(__name__)
 
 # Only tokenizers >= 0.22.0 supports DecodeStream with native prefill
 # (ids parameter) used for FastIncrementalDetokenizer.
 USE_FAST_DETOKENIZER = version.parse(tokenizers.__version__) >= version.parse("0.22.0")
-
-# Think tags for Qwen3/Qwen3.5 reasoning models
-OPEN_THINK_TAG = 248068  # Qwen3.5
-CLOSE_THINK_TAG = 248069  # Qwen3.5
 
 # Error string from https://github.com/huggingface/tokenizers/blob/909fdde2a4ffedd9295206f705eb612be2a91b12/tokenizers/src/tokenizer/mod.rs#L1042
 INVALID_PREFIX_ERR_MSG = "Invalid prefix encountered"

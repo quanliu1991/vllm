@@ -150,6 +150,16 @@ class AsyncLLM(EngineClient):
             tracing_enabled=tracing_endpoint is not None,
         )
 
+        # Resolve think tag token IDs from the tokenizer (overriding env defaults)
+        # Must happen BEFORE EngineCore client is created so that child
+        # processes inherit the resolved token IDs via environment variables.
+        if renderer.tokenizer is not None:
+            from vllm.v1.sample.ops.reasoning_sampler import (
+                resolve_think_tags,
+            )
+
+            resolve_think_tags(renderer.tokenizer)
+
         # EngineCore (starts the engine in background process).
         self.engine_core = EngineCoreClient.make_async_mp_client(
             vllm_config=vllm_config,
