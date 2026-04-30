@@ -23,6 +23,10 @@ logger = init_logger(__name__)
 # (ids parameter) used for FastIncrementalDetokenizer.
 USE_FAST_DETOKENIZER = version.parse(tokenizers.__version__) >= version.parse("0.22.0")
 
+# Think tags for Qwen3/Qwen3.5 reasoning models
+OPEN_THINK_TAG = 248068  # Qwen3.5
+CLOSE_THINK_TAG = 248069  # Qwen3.5
+
 # Error string from https://github.com/huggingface/tokenizers/blob/909fdde2a4ffedd9295206f705eb612be2a91b12/tokenizers/src/tokenizer/mod.rs#L1042
 INVALID_PREFIX_ERR_MSG = "Invalid prefix encountered"
 
@@ -98,6 +102,15 @@ class BaseIncrementalDetokenizer(IncrementalDetokenizer, ABC):
         # Generation data
         self.output_text = ""
 
+        # Thinking phase tracking (mirrors check_stop in sched/utils.py)
+        # Stop strings are disabled when thinking is active.
+        # Qwen3.5-style: OPEN in prompt but CLOSE not yet => starts disabled
+        # Qwen3-style: starts enabled, toggled by OPEN/CLOSE in output
+        prompt_ids = request.prompt_token_ids or []
+        has_open_in_prompt = OPEN_THINK_TAG in prompt_ids
+        has_close_in_prompt = CLOSE_THINK_TAG in prompt_ids
+        self._stop_enabled = not (has_open_in_prompt and not has_close_in_prompt)
+
     def update(self, new_token_ids: list[int], stop_terminated: bool) -> str | None:
         """
         Update RequestState for the request_id by:
@@ -109,6 +122,12 @@ class BaseIncrementalDetokenizer(IncrementalDetokenizer, ABC):
         if not new_token_ids:
             # Skip detokenization if no new token ids.
             return None
+
+        # Track thinking state by watching for OPEN/CLOSE think tags in output.
+        # When thinking is active, stop is disabled; watch for CLOSE tag to re-enable.
+        if not self._stop_enabled:
+            if CLOSE_THINK_TAG in new_token_ids:
+                self._stop_enabled = True
 
         if stop_terminated and not self.include_stop_str_in_output:
             # If stop-terminated, exclude last token from detokenization
@@ -135,8 +154,9 @@ class BaseIncrementalDetokenizer(IncrementalDetokenizer, ABC):
             self.token_ids.append(skipped_stop_token_id)
 
         # 2) Evaluate stop strings.
+        # Skip stop string matching while in thinking phase (Qwen reasoning)
         stop_string = None
-        if self.stop and self.num_output_tokens() > self.min_tokens:
+        if self._stop_enabled and self.stop and self.num_output_tokens() > self.min_tokens:
             stop = check_stop_strings(
                 output_text=self.output_text,
                 new_char_count=len(self.output_text) - stop_check_offset,
