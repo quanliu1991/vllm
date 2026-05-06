@@ -85,4 +85,4 @@ cat "$SUPERVISORD_CONF_TMP"
 echo "---"
 
 # Start supervisord with the generated config
-exec /usr/bin/tini -- supervisord -c "$SUPERVISORD_CONF_TMP"
+exec supervisord -c "$SUPERVISORD_CONF_TMP"

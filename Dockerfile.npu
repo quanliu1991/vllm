@@ -1,4 +1,4 @@
-FROM quay.io/ascend/vllm-ascend:v0.17.0rc1-openeuler
+FROM quay.io/ascend/vllm-ascend:v0.17.0rc1-a3-openeuler
 WORKDIR /workspace
 ENV PIP_PROGRESS_BAR=off
 RUN pip install --no-cache-dir \
@@ -71,4 +71,4 @@ ENV PYARMOR_RKEY=/opt/runtime_data
 ENV START_LLM=true
 ENV START_EMBEDDING=true
 
-ENTRYPOINT ["/usr/bin/tini", "--", "/workspace/entrypoint.sh"]
+ENTRYPOINT ["/workspace/entrypoint.sh"]
