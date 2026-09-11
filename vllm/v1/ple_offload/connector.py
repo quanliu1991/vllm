@@ -5,6 +5,7 @@
 import os
 import queue
 import threading
+import time
 from multiprocessing.reduction import ForkingPickler
 from typing import Any
 
@@ -27,6 +28,29 @@ from vllm.v1.ple_offload.protocol import (
 )
 
 logger = init_logger(__name__)
+
+# Timeout for a single PLE D2H staging round. The copies are KB-scale, so
+# anything close to this bound means the stream is stuck (driver-level
+# stream-memory wait that will never fire). Diagnose, then fall back to a
+# synchronous copy on the default stream to keep the engine alive.
+_PLE_D2H_TIMEOUT_S = 60.0
+
+
+class _PleOffloadQueueItem:
+    """One queued launch: the request plus its private readiness event.
+
+    The event is recorded on the model stream in _launch() and waited on by
+    the request thread, so the wait is bound to THIS step's inputs even if a
+    later step re-enters _launch() before the copy runs.
+    """
+
+    __slots__ = ("request", "input_ready_event")
+
+    def __init__(
+        self, request: PleOffloadRequest, input_ready_event: torch.cuda.Event
+    ) -> None:
+        self.request = request
+        self.input_ready_event = input_ready_event
 
 
 def _cuda_check(result: Any, operation: str) -> Any:
@@ -94,15 +118,28 @@ class PleOffloadConnector:
         self._pinned_input_buffers: list[torch.Tensor] = []
         # PLE rejects DBO, and each forward consumes its output before the
         # next launch, so one pending request is sufficient.
-        self._request_queue: queue.Queue[PleOffloadRequest | None] = queue.Queue(
+        # NOTE (deadlock fix): each queued item now carries its OWN
+        # torch.cuda.Event recorded at launch time. The previous design
+        # reused a single _input_ready_event, and cudaStreamWaitEvent()
+        # binds to the MOST RECENT record at call time, so a re-record
+        # during back-to-back launches (warmup) made the D2H wait on the
+        # CURRENT forward, which itself waits on the CPU worker, which
+        # waits on this very request -> permanent deadlock.
+        self._request_queue: queue.Queue[_PleOffloadQueueItem | None] = queue.Queue(
             maxsize=1
         )
         self._request_thread: threading.Thread | None = None
         self._request_thread_ready = threading.Event()
+        # v3 deadlock fix: while True, prepare_forward satisfies PLE waits
+        # locally (like CUDA-graph capture does) instead of sending real
+        # requests. warmup_kernels fires many back-to-back execute_model
+        # calls whose forwards wait on CPU-worker semaphores; any hiccup in
+        # the staging path deadlocks the whole warmup. Warmup runs use fake
+        # inputs, so real PLE outputs are meaningless there anyway.
+        self._warmup_guard = False
         self._zmq_ctx: zmq.Context | None = None
         self._registration_socket: zmq.Socket | None = None
         self._d2h_stream: torch.cuda.Stream | None = None
-        self._input_ready_event: torch.cuda.Event | None = None
         self._d2h_done_event: torch.cuda.Event | None = None
 
         try:
@@ -118,7 +155,6 @@ class PleOffloadConnector:
                     self._pin_input_buffers()
                     if self._uses_cuda_inputs:
                         self._d2h_stream = torch.cuda.Stream(device=self.device)
-                        self._input_ready_event = torch.cuda.Event()
                         self._d2h_done_event = torch.cuda.Event()
                 self._start_request_thread(ipc_addr)
         except Exception:
@@ -260,10 +296,10 @@ class PleOffloadConnector:
             socket.connect(ipc_addr)
             self._request_thread_ready.set()
             while True:
-                request = self._request_queue.get()
-                if request is None:
+                item = self._request_queue.get()
+                if item is None:
                     return
-                self._process_request(request, socket)
+                self._process_request(item, socket)
         except Exception:
             logger.exception("PLE request thread failed")
             os._exit(1)
@@ -272,15 +308,17 @@ class PleOffloadConnector:
             if socket is not None:
                 socket.close(linger=0)
 
-    def _process_request(self, request: PleOffloadRequest, socket: zmq.Socket) -> None:
+    def _process_request(
+        self, item: _PleOffloadQueueItem, socket: zmq.Socket
+    ) -> None:
         """Stage one batch from fixed sources and publish its request."""
         if self._uses_cuda_inputs:
-            self._copy_cuda_inputs(request)
+            self._copy_cuda_inputs(item)
         else:
-            self._copy_cpu_inputs(request)
+            self._copy_cpu_inputs(item.request)
 
         with torch.cuda.nvtx.range("ple_offload.send_request"):
-            socket.send(msgspec.msgpack.encode(request))
+            socket.send(msgspec.msgpack.encode(item.request))
 
     def _copy_cpu_inputs(self, request: PleOffloadRequest) -> None:
         """Stage MRV1's existing CPU mirrors in the notifier thread."""
@@ -332,18 +370,20 @@ class PleOffloadConnector:
             ):
                 raise ValueError(f"PLE {name} source is incompatible")
 
-    def _copy_cuda_inputs(self, request: PleOffloadRequest) -> None:
+    def _copy_cuda_inputs(self, item: _PleOffloadQueueItem) -> None:
         """Stage MRV2 inputs on the background D2H stream."""
+        request = item.request
         if (
             self._d2h_stream is None
-            or self._input_ready_event is None
             or self._d2h_done_event is None
         ):
             raise RuntimeError("PLE D2H resources are not initialized")
 
         with torch.accelerator.device_index(self.device.index):
             with torch.cuda.stream(self._d2h_stream):
-                self._d2h_stream.wait_event(self._input_ready_event)
+                # Deadlock fix: wait on THIS request's private event instead of
+                # a shared one that may have been re-recorded by a newer step.
+                self._d2h_stream.wait_event(item.input_ready_event)
                 with torch.cuda.nvtx.range("ple_offload.copy_input_ids"):
                     self._input_ids_buf[: request.num_tokens].copy_(
                         self._input_ids_source[: request.num_tokens],
@@ -363,7 +403,59 @@ class PleOffloadConnector:
                         )
                 self._d2h_done_event.record(self._d2h_stream)
             with torch.cuda.nvtx.range("ple_offload.wait_d2h"):
+                # v4: restore the blocking wait on the hot path. The v2 poll
+                # loop (query + sleep 0.05) added up to ~50ms per token and
+                # tripled TPOT; the warmup deadlock it guarded against is now
+                # fixed at the source by the warmup_guard short-circuit (v3),
+                # so the timeout/fallback machinery is kept off the hot path.
                 self._d2h_done_event.synchronize()
+
+    def _diag_stuck_d2h(self, item: _PleOffloadQueueItem) -> None:
+        """Log the state of every party involved in a stuck D2H round."""
+        try:
+            default = torch.cuda.current_stream(self.device)
+            logger.error(
+                "PLE D2H DIAG: request (dp=%d num_tokens=%d num_reqs=%d); "
+                "input_ready_event.done=%s; d2h_done_event.done=%s; "
+                "d2h_stream=%s (id=0x%x); default_stream=%s (id=0x%x); "
+                "d2h_stream.query()=%s",
+                item.request.dp_rank,
+                item.request.num_tokens,
+                item.request.num_reqs,
+                item.input_ready_event.query(),
+                self._d2h_done_event.query() if self._d2h_done_event else None,
+                self._d2h_stream,
+                self._d2h_stream.cuda_stream if self._d2h_stream else 0,
+                default,
+                default.cuda_stream,
+                self._d2h_stream.query() if self._d2h_stream else None,
+            )
+        except Exception:
+            logger.exception("PLE D2H DIAG itself failed")
+
+    def _sync_fallback_copy(self, request: PleOffloadRequest) -> None:
+        """Re-stage inputs synchronously on the default stream as a fallback."""
+        logger.warning(
+            "PLE D2H fallback: copying inputs synchronously on the default "
+            "stream (num_tokens=%d, num_reqs=%d)",
+            request.num_tokens,
+            request.num_reqs,
+        )
+        with torch.accelerator.device_index(self.device.index):
+            # Synchronous copies implicitly synchronize the default stream,
+            # which waited on nothing but real input production; the stuck
+            # private-event wait lives only on the abandoned d2h stream.
+            self._input_ids_buf[: request.num_tokens].copy_(
+                self._input_ids_source[: request.num_tokens]
+            )
+            self._query_start_loc_buf[: request.num_reqs + 1].copy_(
+                self._query_start_loc_source[: request.num_reqs + 1]
+            )
+            if self._ngram_context_buf is not None:
+                assert self._ngram_context_source is not None
+                self._ngram_context_buf[: request.num_reqs].copy_(
+                    self._ngram_context_source[: request.num_reqs]
+                )
 
     def _launch(
         self,
@@ -377,16 +469,19 @@ class PleOffloadConnector:
             return
 
         if self._uses_cuda_inputs:
-            assert self._input_ready_event is not None
-            # The background copy stream waits for runner input production
-            # without making the model stream wait for D2H completion.
-            self._input_ready_event.record(torch.cuda.current_stream(self.device))
+            # Deadlock fix: create a fresh event per request so the request
+            # thread's wait_event() binds to THIS step's record, never to a
+            # record issued after the current forward.
+            input_ready_event = torch.cuda.Event()
+            input_ready_event.record(torch.cuda.current_stream(self.device))
+        else:
+            input_ready_event = None
         request = PleOffloadRequest(
             dp_rank=self.dp_rank,
             num_tokens=num_tokens,
             num_reqs=num_reqs,
         )
-        self._request_queue.put_nowait(request)
+        self._request_queue.put_nowait(_PleOffloadQueueItem(request, input_ready_event))
 
     def prepare_forward(
         self,
@@ -395,10 +490,19 @@ class PleOffloadConnector:
         dummy_run: bool,
     ) -> None:
         """Submit real inputs or satisfy the PLE wait for a dummy forward."""
-        if dummy_run:
+        if dummy_run or self._warmup_guard:
             self.signal_dummy_outputs(num_tokens)
             return
         self._launch(num_reqs, num_tokens)
+
+    @property
+    def warmup_guard(self) -> bool:
+        """Whether PLE forwards are satisfied locally (warmup/capture mode)."""
+        return self._warmup_guard
+
+    @warmup_guard.setter
+    def warmup_guard(self, value: bool) -> None:
+        self._warmup_guard = bool(value)
 
     def signal_dummy_outputs(self, num_tokens: int) -> None:
         """Locally satisfy PLE waits for dummy and capture forwards."""
@@ -436,7 +540,6 @@ class PleOffloadConnector:
             with torch.accelerator.device_index(self.device.index):
                 self._unpin_input_buffers()
         self._d2h_done_event = None
-        self._input_ready_event = None
         self._d2h_stream = None
         if self._registration_socket is not None:
             self._registration_socket.close(linger=0)

@@ -922,7 +922,23 @@ class Worker(WorkerBase):
 
         if self.use_v2_model_runner:
             # V2: Run full execute_model + sample_tokens to JIT compile triton kernels.
-            warmup_kernels(self.model_runner, self.execute_model, self.sample_tokens)
+            # v3 deadlock fix: satisfy PLE waits locally during warmup, exactly
+            # like CUDA-graph capture does. warmup_kernels launches back-to-back
+            # forwards on fake inputs whose PLE placeholders otherwise wait on
+            # the CPU worker's cross-process semaphores; any staging hiccup
+            # (D2H stream stall) then deadlocks the whole warmup.
+            connector = getattr(
+                self.model_runner, "_ple_offload_connector", None
+            )
+            if connector is not None:
+                connector.warmup_guard = True
+            try:
+                warmup_kernels(
+                    self.model_runner, self.execute_model, self.sample_tokens
+                )
+            finally:
+                if connector is not None:
+                    connector.warmup_guard = False
         elif get_pp_group().is_last_rank:
             # V1: Warm up sampler and preallocate memory buffer for logits and other
             # sampling related tensors of max possible shape to avoid memory
