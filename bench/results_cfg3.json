@@ -1,0 +1,17 @@
+{
+  "tag": "cfg3",
+  "concurrency": 32,
+  "num_prompts": 128,
+  "completed": 128,
+  "errors": 0,
+  "ttft_mean_s": 0.989818114549962,
+  "ttft_p50_s": 0.8128021520096809,
+  "ttft_p99_s": 2.8777215851005167,
+  "tpot_mean_ms": 32.57168675995603,
+  "tpot_p99_ms": 287.53662295639515,
+  "e2e_mean_s": 7.472310047832252,
+  "req_throughput_rps": 4.268977229670639,
+  "output_tok_per_s": 853.7954459341278,
+  "wall_s": 29.983762647025287,
+  "daily_capacity_req": 368839.63264354324
+}

@@ -1,0 +1,17 @@
+{
+  "tag": "mtpk1",
+  "concurrency": 32,
+  "num_prompts": 128,
+  "completed": 128,
+  "errors": 0,
+  "ttft_mean_s": 1.053225385801852,
+  "ttft_p50_s": 0.8554233920294791,
+  "ttft_p99_s": 3.049790233024396,
+  "tpot_mean_ms": 51.65471170787229,
+  "tpot_p99_ms": 306.0703210067004,
+  "e2e_mean_s": 6.520217304794642,
+  "req_throughput_rps": 4.873671262703103,
+  "output_tok_per_s": 520.607087304215,
+  "wall_s": 26.26356869400479,
+  "daily_capacity_req": 421085.19709754805
+}

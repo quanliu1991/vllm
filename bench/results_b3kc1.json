@@ -1,0 +1,17 @@
+{
+  "tag": "b3kc1",
+  "concurrency": 1,
+  "num_prompts": 8,
+  "completed": 8,
+  "errors": 0,
+  "ttft_mean_s": 0.12653494776168372,
+  "ttft_p50_s": 0.1264539429685101,
+  "ttft_p99_s": 0.12737902905791998,
+  "tpot_mean_ms": 6.476615216722244,
+  "tpot_p99_ms": 6.819517933763564,
+  "e2e_mean_s": 1.415464237521519,
+  "req_throughput_rps": 0.7063910925399319,
+  "output_tok_per_s": 141.2782185079864,
+  "wall_s": 11.325171119067818,
+  "daily_capacity_req": 61032.19039545012
+}

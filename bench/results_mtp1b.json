@@ -1,0 +1,17 @@
+{
+  "tag": "mtp1b",
+  "concurrency": 32,
+  "num_prompts": 128,
+  "completed": 128,
+  "errors": 0,
+  "ttft_mean_s": 1.999803165222147,
+  "ttft_p50_s": 1.2990386759629473,
+  "ttft_p99_s": 5.993946990929544,
+  "tpot_mean_ms": 61.64838572841974,
+  "tpot_p99_ms": 308.5263690445572,
+  "e2e_mean_s": 6.785414628478065,
+  "req_throughput_rps": 4.448780845843577,
+  "output_tok_per_s": 349.7506379040931,
+  "wall_s": 28.77192750899121,
+  "daily_capacity_req": 384374.66508088505
+}

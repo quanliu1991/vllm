@@ -1,0 +1,17 @@
+{
+  "tag": "mtp1c1",
+  "concurrency": 1,
+  "num_prompts": 8,
+  "completed": 8,
+  "errors": 0,
+  "ttft_mean_s": 0.1293348567560315,
+  "ttft_p50_s": 0.1282712350366637,
+  "ttft_p99_s": 0.13472080894280225,
+  "tpot_mean_ms": 11.941209157224726,
+  "tpot_p99_ms": 13.62964790314436,
+  "e2e_mean_s": 1.0593723629863234,
+  "req_throughput_rps": 0.94377391905608,
+  "output_tok_per_s": 74.4401678655483,
+  "wall_s": 8.476606355048716,
+  "daily_capacity_req": 81542.06660644531
+}

@@ -1,0 +1,17 @@
+{
+  "tag": "b3kw",
+  "concurrency": 32,
+  "num_prompts": 64,
+  "completed": 64,
+  "errors": 0,
+  "ttft_mean_s": 4.377175566418373,
+  "ttft_p50_s": 1.152015330037102,
+  "ttft_p99_s": 15.428620979073457,
+  "tpot_mean_ms": 47.81072432540978,
+  "tpot_p99_ms": 292.1012060251087,
+  "e2e_mean_s": 13.892165780918731,
+  "req_throughput_rps": 2.296261500360138,
+  "output_tok_per_s": 459.25230007202765,
+  "wall_s": 27.8713900790317,
+  "daily_capacity_req": 198396.99363111594
+}

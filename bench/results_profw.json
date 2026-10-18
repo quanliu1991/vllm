@@ -1,0 +1,17 @@
+{
+  "tag": "profw",
+  "concurrency": 32,
+  "num_prompts": 128,
+  "completed": 128,
+  "errors": 0,
+  "ttft_mean_s": 1.1520772486073838,
+  "ttft_p50_s": 0.7818041149294004,
+  "ttft_p99_s": 3.8465510179521516,
+  "tpot_mean_ms": 56.37571252030384,
+  "tpot_p99_ms": 410.1484389975667,
+  "e2e_mean_s": 5.5743989345846785,
+  "req_throughput_rps": 5.567601119301363,
+  "output_tok_per_s": 442.23281703075753,
+  "wall_s": 22.990152716985904,
+  "daily_capacity_req": 481040.7367076378
+}

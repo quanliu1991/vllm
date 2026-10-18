@@ -1,0 +1,17 @@
+{
+  "tag": "wfp8m2b",
+  "concurrency": 32,
+  "num_prompts": 128,
+  "completed": 128,
+  "errors": 0,
+  "ttft_mean_s": 0.9458458273147698,
+  "ttft_p50_s": 0.7642522340174764,
+  "ttft_p99_s": 2.6235159969655797,
+  "tpot_mean_ms": 54.3539354386567,
+  "tpot_p99_ms": 408.5173859493807,
+  "e2e_mean_s": 5.156036370061884,
+  "req_throughput_rps": 6.1529812730523945,
+  "output_tok_per_s": 482.6725387712429,
+  "wall_s": 20.802923707989976,
+  "daily_capacity_req": 531617.5819917269
+}

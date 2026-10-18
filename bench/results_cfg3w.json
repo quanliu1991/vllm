@@ -1,0 +1,17 @@
+{
+  "tag": "cfg3w",
+  "concurrency": 32,
+  "num_prompts": 64,
+  "completed": 64,
+  "errors": 0,
+  "ttft_mean_s": 4.438292270247985,
+  "ttft_p50_s": 1.1484987220028415,
+  "ttft_p99_s": 15.43867074593436,
+  "tpot_mean_ms": 47.203584329732834,
+  "tpot_p99_ms": 292.1947909053415,
+  "e2e_mean_s": 13.832304450663287,
+  "req_throughput_rps": 2.3061971427293657,
+  "output_tok_per_s": 461.2394285458732,
+  "wall_s": 27.75131354306359,
+  "daily_capacity_req": 199255.4331318172
+}

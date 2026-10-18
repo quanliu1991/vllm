@@ -1,0 +1,17 @@
+{
+  "tag": "proftrace",
+  "concurrency": 32,
+  "num_prompts": 16,
+  "completed": 16,
+  "errors": 0,
+  "ttft_mean_s": 2.1016418000799604,
+  "ttft_p50_s": 2.7938869850477204,
+  "ttft_p99_s": 3.063120129983872,
+  "tpot_mean_ms": 42.59863286871869,
+  "tpot_p99_ms": 520.9573410684243,
+  "e2e_mean_s": 5.4485237600893015,
+  "req_throughput_rps": 2.8391319450412613,
+  "output_tok_per_s": 225.88843537734536,
+  "wall_s": 5.635525332996622,
+  "daily_capacity_req": 245301.00005156497
+}

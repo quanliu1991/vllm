@@ -1,0 +1,17 @@
+{
+  "tag": "kvfp8b",
+  "concurrency": 32,
+  "num_prompts": 128,
+  "completed": 128,
+  "errors": 0,
+  "ttft_mean_s": 1.0138329034189155,
+  "ttft_p50_s": 0.8676914930110797,
+  "ttft_p99_s": 2.908081726054661,
+  "tpot_mean_ms": 33.179186193857696,
+  "tpot_p99_ms": 290.9449370345101,
+  "e2e_mean_s": 7.617249940440161,
+  "req_throughput_rps": 4.187868845334516,
+  "output_tok_per_s": 837.5737690669033,
+  "wall_s": 30.564471984980628,
+  "daily_capacity_req": 361831.86823690217
+}
