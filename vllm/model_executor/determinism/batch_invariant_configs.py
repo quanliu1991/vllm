@@ -271,6 +271,12 @@ def _get_tuned_matmul_arch_family(capability: DeviceCapability | None) -> str | 
         return "hopper"
     if capability.major == 8 and capability.minor == 9:
         return "ada"
+    # NOTE: SM80 (A100/A800) intentionally has no tuned table here. The tuned
+    # tables switch num_warps/num_stages/BLOCK_N across M buckets, which was
+    # measured on A800 to change per-row results between buckets (e.g. a
+    # request decoded alone vs inside a 64-row batch). Instead, SM80 relies on
+    # _small_m_default(), which only shrinks BLOCK_SIZE_M — verified bitwise
+    # row-invariant — while keeping every other parameter fixed across M.
     return None
 
 
@@ -308,10 +314,10 @@ def _get_matmul_config(
         return default
     device_configs = _TUNED_MATMUL_CONFIGS_FOR_DEVICE
     if device_configs is None:
-        return default
+        return _small_m_default(M, default)
     shape_config = device_configs.get((N, K))
     if shape_config is None:
-        return default
+        return _small_m_default(M, default)
     # Values above the tuned range reuse the largest bucket;
     # shape-wide BLOCK_K keeps this batch-invariant.
     m_config = shape_config.m_buckets[-1][1]
@@ -327,3 +333,18 @@ def _get_matmul_config(
         "num_warps": m_config.num_warps,
         "num_stages": m_config.num_stages,
     }
+
+
+def _small_m_default(M: int, default: dict[str, int]) -> dict[str, int]:
+    """Shrink BLOCK_SIZE_M for skinny GEMMs when no tuned entry exists.
+
+    BLOCK_SIZE_M only tiles the (independent) output rows; a row's K
+    reduction order is set by BLOCK_SIZE_K/num_warps/num_stages, which stay
+    fixed here. Verified on A800 that per-row results are bitwise identical
+    across BLOCK_SIZE_M while decode-time (M<=8) GEMMs run 2-4x faster.
+    """
+    if M > 8:
+        return default
+    cfg = dict(default)
+    cfg["BLOCK_SIZE_M"] = 16
+    return cfg

@@ -142,6 +142,12 @@ def matmul_persistent(
     assert bias is None or bias.dim() == 1, (
         "Currently assuming bias is 1D, let Horace know if you run into this"
     )
+    return torch.ops.vllm.bi_matmul_persistent(a, b, bias)
+
+
+def _matmul_persistent_impl(
+    a: torch.Tensor, b: torch.Tensor, bias: torch.Tensor | None = None
+):
     NUM_SMS = num_compute_units(a.device.index)
     M, K = a.shape
     K, N = b.shape
@@ -207,6 +213,32 @@ def matmul_persistent(
         **_get_matmul_config(M, N, K, dtype, configs[dtype]),
     )
     return c
+
+
+# Register as a custom op so torch.compile treats it as an opaque call and
+# re-executes the Python body (including the M-dependent BLOCK_SIZE_M choice
+# in _get_matmul_config) at runtime with the real M. Without this, compiling
+# bakes the config chosen during tracing (e.g. M=2048 at capture) into the
+# graph, which both slows decode (M=1 runs a BLOCK_M=128 tile) and breaks
+# row-consistency between bucket boundaries.
+@torch.library.custom_op(
+    "vllm::bi_matmul_persistent",
+    mutates_args=(),
+    device_types=("cuda",),
+)
+def _bi_matmul_persistent_op(
+    a: torch.Tensor, b: torch.Tensor, bias: torch.Tensor | None = None
+) -> torch.Tensor:
+    return _matmul_persistent_impl(a, b, bias)
+
+
+@_bi_matmul_persistent_op.register_fake
+def _(
+    a: torch.Tensor, b: torch.Tensor, bias: torch.Tensor | None = None
+) -> torch.Tensor:
+    return torch.empty(
+        (a.shape[0], b.shape[1]), device=a.device, dtype=a.dtype
+    )
 
 
 @triton.jit
