@@ -1306,14 +1306,18 @@ def get_default_config(
     block_shape: list[int] | None = None,
 ) -> dict[str, int]:
     if envs.VLLM_BATCH_INVARIANT:
-        # NOTE: BLOCK_SIZE_M must stay fixed across all M for bitwise
-        # batch invariance (tl.dot's intra-K accumulation order depends on
-        # the tile shape) and BM=64 measured fastest even at M=1 on A800.
+        # NOTE: for bitwise batch invariance the config must be identical for
+        # every M (tl.dot's intra-K accumulation order depends on the tile
+        # shape), which the fixed tiles below satisfy: verified on A800 that
+        # per-row outputs are bitwise identical across M in [1, 32] with
+        # production-style (weight-sorted) top-k routing, and ~2x faster at
+        # M=1 than the previous (BM=64, BK=32) tiles which wasted 64x row
+        # compute on decode batches.
         return {
-            "BLOCK_SIZE_M": 64,
+            "BLOCK_SIZE_M": 16,
             "BLOCK_SIZE_N": 64,
-            "BLOCK_SIZE_K": 32,
-            "GROUP_SIZE_M": 8,
+            "BLOCK_SIZE_K": 128,
+            "GROUP_SIZE_M": 1,
             "SPLIT_K": 1,
         }
 

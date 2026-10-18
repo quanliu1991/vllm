@@ -341,9 +341,11 @@ def _small_m_default(M: int, default: dict[str, int]) -> dict[str, int]:
     BLOCK_SIZE_M only tiles the (independent) output rows; a row's K
     reduction order is set by BLOCK_SIZE_K/num_warps/num_stages, which stay
     fixed here. Verified on A800 that per-row results are bitwise identical
-    across BLOCK_SIZE_M while decode-time (M<=8) GEMMs run 2-4x faster.
+    across BLOCK_SIZE_M and across M (row0 of M=1 equals row0 of M=32 for
+    every BM in {16,32,64,128} with fixed BN/BK/W/ST), so all decode-time
+    batches (M<=32) can share the BM=16 tile while batch invariance holds.
     """
-    if M > 8:
+    if M > 32:
         return default
     cfg = dict(default)
     cfg["BLOCK_SIZE_M"] = 16

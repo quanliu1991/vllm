@@ -1031,8 +1031,15 @@ class ParallelConfig:
         # Lazy import to avoid circular import
         from vllm.v1.executor import Executor
 
-        # Enable batch invariance settings if requested
-        if envs.VLLM_BATCH_INVARIANT:
+        # Enable batch invariance settings if requested.
+        # At world_size == 2 every allreduce output element is a single
+        # (local + remote) float addition; IEEE addition is commutative, so
+        # the custom all-reduce kernel, NCCL, and any channel/algorithm
+        # choice all produce identical bits. Keeping the custom kernel
+        # enabled at TP=2 therefore preserves bitwise batch invariance
+        # (verified on A800) while avoiding the slower NCCL small-message
+        # path (~5-10us saved per allreduce, ~96 allreduces per decode step).
+        if envs.VLLM_BATCH_INVARIANT and self.tensor_parallel_size != 2:
             self.disable_custom_all_reduce = True
 
         if (
