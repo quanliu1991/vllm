@@ -1306,6 +1306,9 @@ def get_default_config(
     block_shape: list[int] | None = None,
 ) -> dict[str, int]:
     if envs.VLLM_BATCH_INVARIANT:
+        # NOTE: BLOCK_SIZE_M must stay fixed across all M for bitwise
+        # batch invariance (tl.dot's intra-K accumulation order depends on
+        # the tile shape) and BM=64 measured fastest even at M=1 on A800.
         return {
             "BLOCK_SIZE_M": 64,
             "BLOCK_SIZE_N": 64,

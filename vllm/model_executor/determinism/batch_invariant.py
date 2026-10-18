@@ -1009,32 +1009,43 @@ def enable_batch_invariant_mode():
         torch.backends.cuda.preferred_blas_library(backend="cublaslt")
 
 
-def override_envs_for_invariance():
+def override_envs_for_invariance(world_size: int | None = None):
     os.environ["VLLM_ALLREDUCE_USE_SYMM_MEM"] = "0"
 
     os.environ["CUBLAS_WORKSPACE_CONFIG"] = ":4096:8"
 
-    # NCCL determinism settings
-    os.environ["NCCL_LAUNCH_MODE"] = "GROUP"
-    os.environ["NCCL_COLLNET_ENABLE"] = "0"
-    os.environ["NCCL_NVLS_ENABLE"] = "0"
-    os.environ["NCCL_P2P_NET_DISABLE"] = "1"
-    os.environ["NCCL_MIN_NCHANNELS"] = "1"
-    os.environ["NCCL_MAX_NCHANNELS"] = "1"
-    os.environ["NCCL_PROTO"] = "Simple"
-    os.environ["NCCL_ALGO"] = "allreduce:tree"
-    os.environ["NCCL_NTHREADS"] = "1"
-    os.environ["NCCL_SOCKET_NTHREADS"] = "1"
+    # NCCL determinism settings.
+    #
+    # At world_size == 2 every output element of an allreduce is a single
+    # float addition (local + remote). IEEE addition is commutative, so the
+    # bit pattern cannot depend on channel count, protocol, or algorithm;
+    # measurements on A800 (TP=2) show the pinned settings below cost 2-5x
+    # allreduce latency. When world_size == 2 is known at init time we can
+    # therefore keep the default NCCL tuning without affecting bitwise
+    # batch invariance.
+    if world_size == 2:
+        pass  # keep NCCL defaults; allreduce is a 2-way add at this size
+    else:
+        os.environ["NCCL_LAUNCH_MODE"] = "GROUP"
+        os.environ["NCCL_COLLNET_ENABLE"] = "0"
+        os.environ["NCCL_NVLS_ENABLE"] = "0"
+        os.environ["NCCL_P2P_NET_DISABLE"] = "1"
+        os.environ["NCCL_MIN_NCHANNELS"] = "1"
+        os.environ["NCCL_MAX_NCHANNELS"] = "1"
+        os.environ["NCCL_PROTO"] = "Simple"
+        os.environ["NCCL_ALGO"] = "allreduce:tree"
+        os.environ["NCCL_NTHREADS"] = "1"
+        os.environ["NCCL_SOCKET_NTHREADS"] = "1"
 
     # torch.compile settings
     os.environ["VLLM_USE_AOT_COMPILE"] = "0"
 
 
-def init_batch_invariance():
+def init_batch_invariance(world_size: int | None = None):
     # this will hit all the csrc overrides as well
     if envs.VLLM_BATCH_INVARIANT:
         resolve_tuned_matmul_configs()
-        override_envs_for_invariance()
+        override_envs_for_invariance(world_size=world_size)
         enable_batch_invariant_mode()
 
         # Disable TF32 for batch invariance - it causes non-deterministic rounding
