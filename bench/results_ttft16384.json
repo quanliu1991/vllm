@@ -1,0 +1,17 @@
+{
+  "tag": "ttft16384",
+  "concurrency": 32,
+  "num_prompts": 128,
+  "completed": 128,
+  "errors": 0,
+  "ttft_mean_s": 1.1128196586953152,
+  "ttft_p50_s": 0.8394363400002476,
+  "ttft_p99_s": 2.6018403109992505,
+  "tpot_mean_ms": 51.17367738308107,
+  "tpot_p99_ms": 430.27979899852653,
+  "e2e_mean_s": 5.102350293296865,
+  "req_throughput_rps": 6.196684472038286,
+  "output_tok_per_s": 489.19919210896,
+  "wall_s": 20.656207457001074,
+  "daily_capacity_req": 535393.5383841079
+}

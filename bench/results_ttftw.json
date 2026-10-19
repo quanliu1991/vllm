@@ -1,0 +1,17 @@
+{
+  "tag": "ttftw",
+  "concurrency": 32,
+  "num_prompts": 128,
+  "completed": 128,
+  "errors": 0,
+  "ttft_mean_s": 1.253926924429706,
+  "ttft_p50_s": 0.9143660079989786,
+  "ttft_p99_s": 2.9143128159994376,
+  "tpot_mean_ms": 51.672977894441736,
+  "tpot_p99_ms": 407.518912001251,
+  "e2e_mean_s": 5.293447839929698,
+  "req_throughput_rps": 5.919418330895492,
+  "output_tok_per_s": 468.5589572549463,
+  "wall_s": 21.623746261000633,
+  "daily_capacity_req": 511437.74378937046
+}
