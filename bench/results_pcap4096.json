@@ -1,0 +1,17 @@
+{
+  "tag": "pcap4096",
+  "concurrency": 32,
+  "num_prompts": 128,
+  "completed": 128,
+  "errors": 0,
+  "ttft_mean_s": 1.0986398279452487,
+  "ttft_p50_s": 0.6045211239979835,
+  "ttft_p99_s": 4.6372529010004655,
+  "tpot_mean_ms": 59.30278048283309,
+  "tpot_p99_ms": 189.31818199780537,
+  "e2e_mean_s": 5.740578654500013,
+  "req_throughput_rps": 5.505350989635815,
+  "output_tok_per_s": 436.3850870378514,
+  "wall_s": 23.25010707600086,
+  "daily_capacity_req": 475662.3255045344
+}

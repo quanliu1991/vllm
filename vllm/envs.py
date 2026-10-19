@@ -1529,6 +1529,13 @@ environment_variables: dict[str, Callable[[], Any]] = {
     "VLLM_V1_USE_OUTLINES_CACHE": lambda: (
         os.environ.get("VLLM_V1_USE_OUTLINES_CACHE", "0") == "1"
     ),
+    # Cap the number of prefill (non-decode) tokens admitted per scheduler
+    # step when decode requests are running. 0 disables the cap. Limits the
+    # wall-clock spike a mixed chunked-prefill step imposes on concurrent
+    # decodes (helps TPOT p99 on TP-over-PCIe setups).
+    "VLLM_V1_MAX_PREFILL_TOKENS_PER_STEP": lambda: int(
+        os.getenv("VLLM_V1_MAX_PREFILL_TOKENS_PER_STEP", "0")
+    ),
     # Whether using Pathways
     "VLLM_TPU_USING_PATHWAYS": lambda: bool(
         "proxy" in os.getenv("JAX_PLATFORMS", "").lower()

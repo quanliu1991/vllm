@@ -1,0 +1,17 @@
+{
+  "tag": "pcap2048",
+  "concurrency": 32,
+  "num_prompts": 128,
+  "completed": 128,
+  "errors": 0,
+  "ttft_mean_s": 1.1467443234061534,
+  "ttft_p50_s": 0.5899554579991673,
+  "ttft_p99_s": 4.573036687997956,
+  "tpot_mean_ms": 60.08912449184073,
+  "tpot_p99_ms": 191.23707499966258,
+  "e2e_mean_s": 5.8651911037343325,
+  "req_throughput_rps": 5.389807953291905,
+  "output_tok_per_s": 428.5739480359766,
+  "wall_s": 23.748527054998704,
+  "daily_capacity_req": 465679.4071644206
+}

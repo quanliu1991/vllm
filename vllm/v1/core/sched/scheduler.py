@@ -24,6 +24,7 @@ from vllm.distributed.kv_transfer.kv_connector.v1 import (
 )
 from vllm.distributed.kv_transfer.kv_connector.v1.base import KVConnectorMetadata
 from vllm.distributed.kv_transfer.kv_connector.v1.metrics import KVConnectorStats
+from vllm.envs import VLLM_V1_MAX_PREFILL_TOKENS_PER_STEP
 from vllm.logger import init_logger
 from vllm.model_executor.layers.fused_moe.routed_experts_capturer import (
     RoutedExpertsManager,
@@ -607,6 +608,11 @@ class Scheduler(SchedulerInterface):
             throttle_prefills and not self.prefill_capacity_bound
         ) and any(not r.is_prefill_chunk for r in self.running)
 
+        # Cap per-step prefill tokens while decodes run, so a chunked-prefill
+        # admission cannot balloon one step's wall time (TPOT p99 guard).
+        prefill_token_cap = VLLM_V1_MAX_PREFILL_TOKENS_PER_STEP
+        prefill_tokens_scheduled = 0
+
         # First, schedule the RUNNING requests.
         req_index = 0
         while req_index < len(self.running) and token_budget > 0:
@@ -672,6 +678,13 @@ class Scheduler(SchedulerInterface):
                 - request.num_computed_tokens
                 - self.num_sampled_tokens_per_step,
             )
+
+            if request.is_prefill_chunk and prefill_token_cap > 0:
+                prefill_left = prefill_token_cap - prefill_tokens_scheduled
+                if prefill_left <= 0:
+                    req_index += 1
+                    continue
+                num_new_tokens = min(num_new_tokens, prefill_left)
 
             # Apply Mamba alignment before encoder caps.
             if self.need_mamba_block_aligned_split:
@@ -806,6 +819,8 @@ class Scheduler(SchedulerInterface):
             num_scheduled_tokens[request_id] = num_new_tokens
             token_budget -= num_new_tokens
             input_budget -= num_new_tokens + draft_slots
+            if request.is_prefill_chunk:
+                prefill_tokens_scheduled += num_new_tokens
             req_index += 1
 
             # Speculative decode related.
@@ -1080,6 +1095,14 @@ class Scheduler(SchedulerInterface):
                     num_new_tokens = min(num_new_tokens, request_token_budget)
                     assert num_new_tokens > 0
 
+                    if prefill_token_cap > 0 and not pad_spec_decode:
+                        prefill_left = prefill_token_cap - prefill_tokens_scheduled
+                        if prefill_left <= 0:
+                            break
+                        num_new_tokens = min(num_new_tokens, prefill_left)
+                        if num_new_tokens == 0:
+                            break
+
                     # Apply Mamba alignment before encoder caps.
                     if self.need_mamba_block_aligned_split:
                         num_new_tokens = self._mamba_block_aligned_split(
@@ -1123,6 +1146,12 @@ class Scheduler(SchedulerInterface):
                     num_new_tokens = self._reserve_prefill_lookahead(
                         request, num_computed_tokens, num_new_tokens
                     )
+
+                    if prefill_token_cap > 0 and not pad_spec_decode:
+                        prefill_left = prefill_token_cap - prefill_tokens_scheduled
+                        if prefill_left <= 0:
+                            break
+                        num_new_tokens = min(num_new_tokens, prefill_left)
 
                     if num_new_tokens == 0:
                         # The request cannot be scheduled.
@@ -1261,6 +1290,8 @@ class Scheduler(SchedulerInterface):
                 num_scheduled_tokens[request_id] = num_new_tokens
                 token_budget -= num_new_tokens
                 input_budget -= num_new_tokens + draft_slots
+                if prefill_token_cap > 0 and not pad_spec_decode:
+                    prefill_tokens_scheduled += num_new_tokens
                 request.status = RequestStatus.RUNNING
                 request.num_computed_tokens = num_computed_tokens
                 if pad_spec_decode:

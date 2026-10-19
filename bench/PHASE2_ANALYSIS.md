@@ -35,9 +35,17 @@ tag `v0.30.0-qwen35-l20-stage1`).
    | Flash attention (10 full-attn layers) | 3.1 | 8% | |
    | sampling + elementwise + misc | 2.2 | 6% | |
 
-4. **Variant sweeps this phase (all REJECTED):**
-   - `--max-num-batched-tokens 32768`: TPOT 51.2ms (regression vs 8192's 20.8).
-   - `NCCL_ALGO=Ring NCCL_PROTO=Simple`: TPOT 60.6ms, TTFT 1.19s (hard regression).
+## Variant sweeps this phase (INVALIDATED — see Environment pollution)
+
+- `--max-num-batched-tokens 32768`: TPOT 51.2ms — measured AFTER a foreign
+  vLLM production instance (TP2 on GPU 0-3, `HengNao-3_5-35ba3b-chat`,
+  started ~15:00 by another tenant, see `ps aux`: `VLLM::Worker_TP0/1` with
+  ~155% CPU each) began saturating the shared host PCIe/NUMA path.
+- `NCCL_ALGO=Ring NCCL_PROTO=Simple`: TPOT 60.6ms — same polluted window.
+- Prefill-cap env knob (this branch): 60ms at both 2048/4096 — same window.
+- **Control re-run of the UNCHANGED final config: TPOT 59.7ms** (vs 20.8ms in
+  the clean window this morning) → the machine is contended; all afternoon
+  A/B results are invalid. Re-benchmark when GPUs 0-3 are idle.
 
 ## Key insights
 
@@ -64,7 +72,7 @@ tag `v0.30.0-qwen35-l20-stage1`).
 
 | # | Lever | Type | Est. gain | Risk |
 |---|---|---|---|---|
-| 1 | Prefill/decode scheduling: batch waiting prefills into dedicated steps (per-step prefill token cap knob), keep decode-only steps between | scheduler code | TPOT -3ms, TTFT 0.94→~0.4s | Medium (correctness of chunked-prefill+MTP interplay) |
+| 1 | Prefill/decode scheduling: per-step prefill token cap (`VLLM_V1_MAX_PREFILL_TOKENS_PER_STEP`, implemented on `perf/prefill-cap-sched`, UNVALIDATED due to polluted host) | scheduler code | TPOT -3ms, TTFT 0.94→~0.4s | Medium (correctness of chunked-prefill+MTP interplay) |
 | 2 | lm_head + draft linear FP8 (PTPC) behind `--quantization` extension or post-load hook | quant code | TPOT -1.5~2ms, +312MB KV room | Accuracy-gated (argmax shift) |
 | 3 | GDN `decode_post_conv_mtp` fusion (batch conv+sigmoid+ddp chains) | kernel | -1~1.5ms | Medium |
 | 4 | MoE W4A16 experts (AWQ/GPTQ via llm-compressor offline) | checkpoint | -4~5ms | Accuracy-gated, offline pipeline |
