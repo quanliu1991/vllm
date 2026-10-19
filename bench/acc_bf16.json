@@ -1,0 +1,36 @@
+{
+  "tag": "bf16",
+  "results": [
+    {
+      "id": "math_gsm",
+      "ok": true,
+      "len": 1778
+    },
+    {
+      "id": "math_multi",
+      "ok": true,
+      "len": 2215
+    },
+    {
+      "id": "fact_pop",
+      "ok": true,
+      "len": 2117
+    },
+    {
+      "id": "logic_order",
+      "ok": true,
+      "len": 2737
+    },
+    {
+      "id": "tool_call",
+      "ok": true,
+      "args": {
+        "ioc": "evil-sink.example.com",
+        "time_range": "30d",
+        "severity": [
+          "高"
+        ]
+      }
+    }
+  ]
+}

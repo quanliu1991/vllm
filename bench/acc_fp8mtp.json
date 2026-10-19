@@ -1,0 +1,36 @@
+{
+  "tag": "fp8mtp",
+  "results": [
+    {
+      "id": "math_gsm",
+      "ok": true,
+      "len": 2006
+    },
+    {
+      "id": "math_multi",
+      "ok": true,
+      "len": 2104
+    },
+    {
+      "id": "fact_pop",
+      "ok": true,
+      "len": 1807
+    },
+    {
+      "id": "logic_order",
+      "ok": true,
+      "len": 2943
+    },
+    {
+      "id": "tool_call",
+      "ok": true,
+      "args": {
+        "ioc": "evil-sink.example.com",
+        "time_range": "30d",
+        "severity": [
+          "高"
+        ]
+      }
+    }
+  ]
+}

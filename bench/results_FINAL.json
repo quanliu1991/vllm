@@ -1,0 +1,17 @@
+{
+  "tag": "FINAL",
+  "concurrency": 32,
+  "num_prompts": 128,
+  "completed": 128,
+  "errors": 0,
+  "ttft_mean_s": 0.8876048229062263,
+  "ttft_p50_s": 0.6872881620001863,
+  "ttft_p99_s": 2.5715129370000795,
+  "tpot_mean_ms": 53.42662724538985,
+  "tpot_p99_ms": 401.02857800047786,
+  "e2e_mean_s": 5.052282944554648,
+  "req_throughput_rps": 6.267597158260522,
+  "output_tok_per_s": 494.74845068018993,
+  "wall_s": 20.422499526999673,
+  "daily_capacity_req": 541520.3944737092
+}

@@ -1,0 +1,17 @@
+{
+  "tag": "finalwarm",
+  "concurrency": 32,
+  "num_prompts": 128,
+  "completed": 128,
+  "errors": 0,
+  "ttft_mean_s": 1.3115878584531018,
+  "ttft_p50_s": 0.8337535609998667,
+  "ttft_p99_s": 4.581368555000154,
+  "tpot_mean_ms": 55.19071293009959,
+  "tpot_p99_ms": 505.41927799986297,
+  "e2e_mean_s": 5.605624201984334,
+  "req_throughput_rps": 5.608225941426221,
+  "output_tok_per_s": 441.86686421315187,
+  "wall_s": 22.823616832999505,
+  "daily_capacity_req": 484550.72133922554
+}
