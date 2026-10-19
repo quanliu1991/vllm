@@ -1,0 +1,17 @@
+{
+  "tag": "tuned3w",
+  "concurrency": 32,
+  "num_prompts": 128,
+  "completed": 128,
+  "errors": 0,
+  "ttft_mean_s": 1.2866215857890282,
+  "ttft_p50_s": 0.7482994540005166,
+  "ttft_p99_s": 4.775288155999988,
+  "tpot_mean_ms": 58.08981418408434,
+  "tpot_p99_ms": 405.84822799974063,
+  "e2e_mean_s": 5.821073578968722,
+  "req_throughput_rps": 5.349151610227015,
+  "output_tok_per_s": 422.83371868966356,
+  "wall_s": 23.92902825099918,
+  "daily_capacity_req": 462166.69912361406
+}

@@ -1,0 +1,17 @@
+{
+  "tag": "tuned2",
+  "concurrency": 32,
+  "num_prompts": 128,
+  "completed": 128,
+  "errors": 0,
+  "ttft_mean_s": 1.024346383906206,
+  "ttft_p50_s": 0.8446338049998303,
+  "ttft_p99_s": 2.831536521999624,
+  "tpot_mean_ms": 97.07233582568688,
+  "tpot_p99_ms": 288.154406999638,
+  "e2e_mean_s": 8.595183974531274,
+  "req_throughput_rps": 3.6960537053222065,
+  "output_tok_per_s": 291.9304918813086,
+  "wall_s": 34.63153141299972,
+  "daily_capacity_req": 319339.04013983865
+}

@@ -1,0 +1,17 @@
+{
+  "tag": "p2warm",
+  "concurrency": 32,
+  "num_prompts": 32,
+  "completed": 32,
+  "errors": 0,
+  "ttft_mean_s": 2.6179149451672856,
+  "ttft_p50_s": 2.9751866360893473,
+  "ttft_p99_s": 4.190337814041413,
+  "tpot_mean_ms": 52.97706489830057,
+  "tpot_p99_ms": 662.2126940637827,
+  "e2e_mean_s": 6.755519913283933,
+  "req_throughput_rps": 4.467010171685547,
+  "output_tok_per_s": 353.3125857667537,
+  "wall_s": 7.163628192036413,
+  "daily_capacity_req": 385949.6788336312
+}

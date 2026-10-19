@@ -1,0 +1,17 @@
+{
+  "tag": "ep2",
+  "concurrency": 32,
+  "num_prompts": 128,
+  "completed": 128,
+  "errors": 0,
+  "ttft_mean_s": 0.9427668680000494,
+  "ttft_p50_s": 0.785258433999843,
+  "ttft_p99_s": 2.649528095000278,
+  "tpot_mean_ms": 56.07826342037635,
+  "tpot_p99_ms": 417.07595299976674,
+  "e2e_mean_s": 5.342573643437547,
+  "req_throughput_rps": 5.933717338798859,
+  "output_tok_per_s": 471.4060282675437,
+  "wall_s": 21.57163759099967,
+  "daily_capacity_req": 512673.1780722214
+}

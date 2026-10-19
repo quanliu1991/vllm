@@ -1,0 +1,17 @@
+{
+  "tag": "tuned2w",
+  "concurrency": 32,
+  "num_prompts": 128,
+  "completed": 128,
+  "errors": 0,
+  "ttft_mean_s": 1.0168257076328473,
+  "ttft_p50_s": 0.8194853969998803,
+  "ttft_p99_s": 2.8939987079993443,
+  "tpot_mean_ms": 102.17783841441147,
+  "tpot_p99_ms": 284.41887899953144,
+  "e2e_mean_s": 8.982564094242214,
+  "req_throughput_rps": 3.5042393361054947,
+  "output_tok_per_s": 276.67064633345416,
+  "wall_s": 36.52718542399998,
+  "daily_capacity_req": 302766.27863951476
+}

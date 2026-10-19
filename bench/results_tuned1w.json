@@ -1,0 +1,17 @@
+{
+  "tag": "tuned1w",
+  "concurrency": 32,
+  "num_prompts": 128,
+  "completed": 128,
+  "errors": 0,
+  "ttft_mean_s": 1.1323119692096952,
+  "ttft_p50_s": 0.6737867230549455,
+  "ttft_p99_s": 5.1697322180261835,
+  "tpot_mean_ms": 58.92226133793833,
+  "tpot_p99_ms": 464.7840770194307,
+  "e2e_mean_s": 5.7275487007127595,
+  "req_throughput_rps": 5.472781872513599,
+  "output_tok_per_s": 432.2214996034372,
+  "wall_s": 23.388470979058184,
+  "daily_capacity_req": 472848.3537851749
+}
